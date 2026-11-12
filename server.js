@@ -9,7 +9,7 @@ export function createApp(env = process.env) {
   const maxViewers = Number(env.MAX_VIEWERS || 6);
   const turnUrls = (env.TURN_URLS || '').split(',').map(s => s.trim()).filter(Boolean);
   if (turnUrls.length && !env.TURN_SECRET) throw new Error('TURN_SECRET is required with TURN_URLS');
-  const files = new Map([['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']], ['/pirate-flag.svg', ['pirate-flag.svg', 'image/svg+xml']]]);
+  const files = new Map([['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/video-quality.js', ['video-quality.js', 'text/javascript']], ['/room-chat.js', ['room-chat.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']], ['/pirate-flag.svg', ['pirate-flag.svg', 'image/svg+xml']]]);
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -32,6 +32,11 @@ export function createApp(env = process.env) {
     wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
   });
   const send = (ws, msg) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); };
+  const members = room => [room.host, ...room.viewers.values()];
+  const roster = room => {
+    const msg = {type:'members', members:members(room).map(p => ({id:p.id, name:p.host ? 'Капитан' : `Матрос ${p.id.slice(0, 4)}`, voice:!!p.voice}))};
+    for (const p of members(room)) send(p, msg);
+  };
   const ice = () => {
     const servers = [{urls: (env.STUN_URLS || 'stun:stun.l.google.com:19302').split(',')}];
     if (turnUrls.length) {
@@ -63,7 +68,8 @@ export function createApp(env = process.env) {
           const codeHash = createHash('sha256').update(salt + code).digest();
           rooms.set(id, {host:ws, token, salt, codeHash, attempts:0, attemptsSince:Date.now(), viewers:new Map()});
           clearTimeout(authTimer);
-          send(ws, {type:'created', room:id, token, iceServers:ice(), maxViewers});
+          send(ws, {type:'created', id:ws.id, room:id, token, iceServers:ice(), maxViewers});
+          roster(rooms.get(id));
         } else if (msg.type === 'join') {
           const room = rooms.get(msg.room);
           if (!room || room.token !== msg.token) return send(ws, {type:'error', message:'Комната не найдена или ссылка недействительна.'});
@@ -79,11 +85,26 @@ export function createApp(env = process.env) {
           ws.room = msg.room; room.viewers.set(ws.id, ws); clearTimeout(authTimer);
           send(ws, {type:'joined', id:ws.id, iceServers:ice()});
           send(room.host, {type:'viewer-joined', id:ws.id});
+          roster(room);
         }
         return;
       }
       const room = rooms.get(ws.room);
       if (!room) return;
+      if (msg.type === 'chat' && typeof msg.text === 'string') {
+        const text = msg.text.trim();
+        if (!text || text.length > 2000) return;
+        if (Date.now() - (ws.lastChat || 0) < 300) return;
+        ws.lastChat = Date.now();
+        for (const p of members(room)) send(p, {type:'chat', from:ws.id, name:ws.host ? 'Капитан' : `Матрос ${ws.id.slice(0, 4)}`, text, at:Date.now()});
+      }
+      if (msg.type === 'voice-state' && typeof msg.enabled === 'boolean') {
+        ws.voice = msg.enabled; roster(room);
+      }
+      if (msg.type === 'voice-signal' && ws.voice && msg.data && typeof msg.data === 'object') {
+        const target = members(room).find(p => p.id === msg.to && p !== ws && p.voice);
+        if (target) send(target, {type:'voice-signal', from:ws.id, data:msg.data});
+      }
       if (msg.type === 'signal' && msg.data && typeof msg.data === 'object') {
         const target = ws.host ? room.viewers.get(msg.to) : room.host;
         if (target) send(target, {type:'signal', from:ws.id, data:msg.data});
@@ -95,7 +116,7 @@ export function createApp(env = process.env) {
       if (ws.host) {
         rooms.delete(ws.room);
         for (const viewer of room.viewers.values()) { send(viewer, {type:'ended'}); viewer.close(); }
-      } else { room.viewers.delete(ws.id); send(room.host, {type:'viewer-left', id:ws.id}); }
+      } else { room.viewers.delete(ws.id); send(room.host, {type:'viewer-left', id:ws.id}); roster(room); }
     });
   });
   const heartbeat = setInterval(() => {

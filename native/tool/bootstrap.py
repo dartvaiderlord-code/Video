@@ -16,25 +16,15 @@ if not (root / 'android').exists() or not (root / 'windows').exists():
 manifest = root / 'android/app/src/main/AndroidManifest.xml'
 text = manifest.read_text(encoding='utf-8')
 text = text.replace('android:label="pirate_tavern"', 'android:label="Пиратский трактир"')
-# Viewer needs network and audio output, not camera, microphone or projection permissions.
-for permission in ('INTERNET', 'ACCESS_NETWORK_STATE', 'MODIFY_AUDIO_SETTINGS'):
+# Microphone is requested at runtime only when joining the optional voice chat.
+for permission in ('INTERNET', 'ACCESS_NETWORK_STATE', 'MODIFY_AUDIO_SETTINGS', 'RECORD_AUDIO'):
     if f'android.permission.{permission}' not in text:
         text = text.replace('    <application', f'    <uses-permission android:name="android.permission.{permission}" />\n    <application', 1)
 if 'android:usesCleartextTraffic=' not in text:
     text = text.replace('    <application', '    <application android:usesCleartextTraffic="false"', 1)
 manifest.write_text(text, encoding='utf-8')
 activity = root / 'android/app/src/main/kotlin/ru/piratetraktir/pirate_tavern/MainActivity.kt'
-activity.write_text('''package ru.piratetraktir.pirate_tavern
-import android.os.Bundle
-import android.view.WindowManager
-import io.flutter.embedding.android.FlutterActivity
-class MainActivity : FlutterActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-    }
-}
-''', encoding='utf-8')
+activity.write_text((root / 'tool/MainActivity.kt').read_text(encoding='utf-8'), encoding='utf-8')
 main = root / 'windows/runner/main.cpp'
 main.write_text(main.read_text(encoding='utf-8').replace('L"pirate_tavern"', 'L"Пиратский трактир"'), encoding='utf-8')
 cmake = root / 'windows/CMakeLists.txt'

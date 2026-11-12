@@ -46,7 +46,16 @@ void main() {
       expect((video['mandatory'] as Map)['frameRate'], isA<double>());
       expect((video['mandatory'] as Map)['frameRate'], 144.0);
       expect((video['mandatory'] as Map)['maxHeight'], 1440);
-      expect(constraints['audio'], true);
+      expect((constraints['audio'] as Map)['deviceId'], {'exact': '0'});
+      expect(
+        (profile.constraints('screen', audioSourceId: '123')['audio']
+            as Map)['deviceId'],
+        {'exact': '123'},
+      );
+      expect(
+        profile.constraints('screen', audioSourceId: null)['audio'],
+        false,
+      );
     },
   );
   test('does not accept private keys or invalid PEM as a root CA', () {

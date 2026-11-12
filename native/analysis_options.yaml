@@ -2,6 +2,7 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - build/**
+    - vendor/**
 linter:
   rules:
     avoid_print: true

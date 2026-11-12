@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#171412"><title>Пиратский трактир — на одной палубе</title>
-<link rel="icon" type="image/svg+xml" href="/pirate-flag.svg"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+<link rel="icon" type="image/svg+xml" href="/pirate-flag.svg"><link rel="stylesheet" href="/style.css"><script src="/app.js" type="module"></script>
 </head>
 <body><main>
 <header><a href="/" class="brand"><img src="/pirate-flag.svg" alt="Пиратский флаг"><span>Пиратский трактир<small>ПРИЧАЛ ДЛЯ СВОИХ</small></span></a><span class="header-note">⚓ Вместе на одной палубе</span></header>
@@ -13,7 +13,7 @@
 <div id="host-options">
 <label>Придумайте код комнаты<input id="room-code" type="text" autocomplete="off" minlength="4" maxlength="64" required placeholder="Свой код, например GOIDA" aria-describedby="code-hint"></label>
 <p class="hint" id="code-hint">От 4 до 64 символов. Друзьям понадобятся ссылка и этот код.</p>
-<div class="settings"><label>Разрешение<select id="quality"><option value="720">720p</option><option value="1080" selected>1080p</option><option value="1440">1440p</option><option value="2160">4K · 2160p</option></select></label><label>Частота кадров<select id="fps"><option value="30">30 FPS</option><option value="60" selected>60 FPS</option><option value="120">120 FPS</option><option value="144">144 FPS</option><option value="165">165 FPS</option><option value="240">240 FPS</option></select></label><label>Битрейт на зрителя<select id="bitrate"><option value="4">4 Мбит/с</option><option value="8" selected>8 Мбит/с</option><option value="12">12 Мбит/с</option><option value="20">20 Мбит/с</option><option value="35">35 Мбит/с</option><option value="50">50 Мбит/с</option><option value="80">80 Мбит/с</option><option value="100">100 Мбит/с</option></select></label></div>
+<div class="settings"><label>Разрешение<select id="quality"><option value="720">720p</option><option value="1080" selected>1080p</option><option value="1440">1440p</option><option value="2160">4K · 2160p</option></select></label><label>Частота кадров<select id="fps"><option value="30">30 FPS</option><option value="60">60 FPS</option><option value="120" selected>120 FPS</option><option value="144">144 FPS</option><option value="165">165 FPS</option><option value="240">240 FPS</option></select></label><label>Битрейт на зрителя<select id="bitrate"><option value="4">4 Мбит/с</option><option value="8">8 Мбит/с</option><option value="12">12 Мбит/с</option><option value="20">20 Мбит/с</option><option value="35" selected>35 Мбит/с</option><option value="50">50 Мбит/с</option><option value="80">80 Мбит/с</option><option value="100">100 Мбит/с</option><option value="150">150 Мбит/с</option><option value="200">200 Мбит/с</option></select></label></div>
 <p class="hint">120–240 FPS запрашиваются у браузера. Итог зависит от экрана, ОС, браузера и сети. Фактические параметры появятся под видео.</p>
 <p class="hint">Для звука вкладки выберите её и включите «Поделиться аудио». Звук игры или всего экрана доступен, если его предлагает браузер.</p>
 </div>
@@ -21,6 +21,10 @@
 <div class="actions"><button id="start">⚑ Выбрать экран и отчалить</button><button id="join" hidden>Подняться на борт</button><button id="stop" class="secondary" hidden>Завершить трансляцию</button></div>
 <div id="invite" hidden><label>Приглашение для команды<div class="linkrow"><input id="link" readonly aria-label="Ссылка на комнату"><button id="copy" class="secondary">Копировать</button></div></label><p class="hint">Передайте друзьям ссылку и придуманный код комнаты. Код в ссылку не включён.</p></div>
 <div id="stage" hidden><video id="video" autoplay playsinline controls></video><button id="play" class="secondary" hidden>Включить видео и звук</button><p id="stats" class="hint"></p><p id="capture-stats" class="hint" hidden></p></div>
+<div id="chat" hidden>
+<details><summary>⚓ Чат команды</summary><div id="chat-messages" role="log" aria-live="polite"></div><form id="chat-form" class="linkrow"><input id="chat-input" maxlength="2000" placeholder="Сообщение команде" aria-label="Сообщение команде"><button>Отправить</button></form></details>
+<div class="actions"><button id="voice-toggle" class="secondary">Войти в голосовой чат</button><button id="mic-toggle" class="secondary" hidden>Выключить микрофон</button><button id="voice-play" class="secondary">Включить голоса</button></div><p id="voice-members" class="hint"></p><p id="voice-error" role="status"></p><p class="hint">Микрофон включается только по кнопке. Для избежания эха используйте наушники. При захвате системного звука в браузере голоса могут попасть в трансляцию.</p>
+</div>
 </section>
 <footer><span>⚓ Пиратский трактир · WebRTC</span><span>Видео не записывается и не хранится на сервере</span></footer>
 <p class="note">Для трансляции рекомендуются Chrome / Edge на компьютере. Телефоны могут смотреть; передача экрана с мобильного браузера обычно недоступна. Защищённое DRM-видео может отображаться чёрным экраном.</p>

@@ -1,0 +1,2 @@
+# Retain upstream source formatting and keep dependency code out of language stats.
+native/vendor/** linguist-vendored -whitespace

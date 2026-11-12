@@ -58,17 +58,26 @@ String validateRoomCode(String text) {
 class CaptureProfile {
   const CaptureProfile({
     this.height = 1080,
-    this.fps = 60,
-    this.mbps = 20,
+    this.fps = 120,
+    this.mbps = 35,
     this.codec = 'H264',
     this.keepResolution = true,
+    this.fullQuality = true,
   });
   final int height, fps, mbps;
   final String codec;
   final bool keepResolution;
+  final bool fullQuality;
   int get width => (height * 16 / 9).round();
-  Map<String, dynamic> constraints(String sourceId) => {
-    'audio': true,
+  Map<String, dynamic> constraints(
+    String sourceId, {
+    String? audioSourceId = '0',
+  }) => {
+    'audio': audioSourceId == null
+        ? false
+        : {
+            'deviceId': {'exact': audioSourceId},
+          },
     'video': {
       'deviceId': {'exact': sourceId},
       'cursor': 'always',

@@ -14,7 +14,7 @@ async function setup(t, env = {}) {
     const queue = [], waiters = [];
     ws.on('message', data => { const msg = JSON.parse(data); if (waiters.length) waiters.shift()(msg); else queue.push(msg); });
     await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
-    return {ws, send: msg => ws.send(JSON.stringify(msg)), next: () => queue.length ? Promise.resolve(queue.shift()) : new Promise(resolve => waiters.push(resolve))};
+    return {ws, send: msg => ws.send(JSON.stringify(msg)), next: async (type) => { for (;;) { const msg = queue.length ? queue.shift() : await new Promise(resolve => waiters.push(resolve)); if (type ? msg.type === type : msg.type !== 'members') return msg; } }};
   }
   return {base, client};
 }
@@ -75,4 +75,27 @@ test('room code attempts are limited and room codes are not exposed in invitatio
   const fresh = await client();
   fresh.send({type:'join', room:room.room, token:room.token, roomCode:'my-own-secret'});
   assert.match((await fresh.next()).message, /30 секунд/);
+});
+
+test('authenticated room chat, voice roster and viewer-to-viewer voice stay within the room', {timeout:5000}, async t => {
+  const {client} = await setup(t);
+  const host = await client(); host.send({type:'create',roomCode:'GOIDA'}); const room = await host.next();
+  assert.equal((await host.next('members')).members[0].id, room.id);
+  const a = await client(), b = await client();
+  a.send({type:'join', room:room.room, token:room.token, roomCode:'GOIDA'}); const joinedA = await a.next();
+  b.send({type:'join', room:room.room, token:room.token, roomCode:'GOIDA'}); const joinedB = await b.next();
+  await b.next('members');
+  a.send({type:'chat', text:'<b>Hello</b>', from:'spoofed'});
+  const chat = await b.next('chat'); assert.equal(chat.from,joinedA.id); assert.equal(chat.text,'<b>Hello</b>');
+  a.send({type:'voice-state',enabled:true}); b.send({type:'voice-state',enabled:true});
+  let roster; do { roster = await b.next('members'); } while (!roster.members.every(m => m.id === room.id || m.voice));
+  a.send({type:'voice-signal', to:joinedB.id, from:'spoofed', data:{description:{type:'offer',sdp:'voice'}}});
+  const signal = await b.next('voice-signal'); assert.equal(signal.from, joinedA.id);
+  const outsider = await client(); outsider.send({type:'create',roomCode:'OTHER'}); const other = await outsider.next(); await outsider.next('members');
+  let leaked = false; outsider.ws.on('message', raw => { if (['voice-signal','chat'].includes(JSON.parse(raw).type)) leaked = true; });
+  a.send({type:'voice-signal',to:other.id,data:{candidate:{candidate:'private'}}});
+  b.send({type:'voice-state',enabled:false}); await b.next('members');
+  let voiceAfterLeave = false; b.ws.on('message', raw => { if (JSON.parse(raw).type === 'voice-signal') voiceAfterLeave = true; });
+  a.send({type:'voice-signal',to:joinedB.id,data:{candidate:{candidate:'stale'}}});
+  await new Promise(r => setTimeout(r, 150)); assert.equal(leaked,false); assert.equal(voiceAfterLeave,false);
 });

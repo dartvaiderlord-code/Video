@@ -1,3 +1,5 @@
+import {videoBudget, videoQualitySdp} from './video-quality.js';
+import {RoomChat} from './room-chat.js';
 const $ = id => document.getElementById(id);
 const video = $('video');
 const params = new URLSearchParams(location.hash.slice(1));
@@ -7,6 +9,17 @@ const peers = new Map();
 let statTimer;
 let captureTimer;
 let captureRequest;
+const chat = new RoomChat(msg => send(msg), renderChat);
+function renderChat() {
+  $('chat').hidden = !active;
+  $('chat-messages').replaceChildren(...chat.messages.map(m => { const p = document.createElement('p'); p.textContent = `${m.name}: ${m.text}`; return p; }));
+  $('voice-toggle').textContent = chat.enabled ? 'Выйти из голосового чата' : 'Войти в голосовой чат';
+  $('voice-toggle').disabled = chat.busy; $('mic-toggle').hidden = !chat.enabled;
+  $('mic-toggle').textContent = chat.muted ? 'Включить микрофон' : 'Выключить микрофон';
+  $('voice-error').textContent = chat.error;
+  $('voice-members').textContent = chat.members.filter(m => m.voice).map(m => m.name).join(', ');
+}
+
 const status = message => { $('status').textContent = message; };
 const send = msg => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg)); };
 if (isViewer) {
@@ -16,6 +29,7 @@ if (isViewer) {
 }
 function cleanup(message) {
   intentional = true; active = false;
+  chat.reset();
   socket?.close(); socket = null;
   for (const {pc} of peers.values()) pc.close(); peers.clear();
   stream?.getTracks().forEach(track => track.stop()); stream = null;
@@ -47,16 +61,20 @@ function makePeer(id) {
   return peer;
 }
 async function handle(msg) {
+  if (['chat', 'members', 'voice-signal'].includes(msg.type)) {
+    try { await chat.handle(msg); } catch(e) { chat.error = `Ошибка голосового чата: ${e.message}`; renderChat(); } return;
+  }
   if (msg.type === 'error') { cleanup(msg.message); return; }
   if (msg.type === 'created') {
-    iceServers = msg.iceServers; active = true;
+    iceServers = msg.iceServers; chat.iceServers = iceServers; chat.selfId = msg.id; active = true;
     $('link').value = `${location.origin}/#room=${msg.room}&token=${msg.token}`;
     $('invite').hidden = false; $('stop').hidden = false; $('start').hidden = true;
     $('host-options').hidden = true; $('count').textContent = `0 / ${msg.maxViewers} зрителей`;
+    startStats();
     status(`Трансляция готова. ${stream.getAudioTracks().length ? 'Звук передаётся.' : 'Звук не выбран — передаётся только видео.'}`);
   }
   if (msg.type === 'joined') {
-    iceServers = msg.iceServers; active = true; makePeer('host');
+    iceServers = msg.iceServers; chat.iceServers = iceServers; chat.selfId = msg.id; active = true; makePeer('host');
     $('join').hidden = true; $('viewer-options').hidden = true; $('stop').hidden = false;
     $('stop').textContent = 'Отключиться'; status('Подключаем видео…');
     startStats();
@@ -64,16 +82,8 @@ async function handle(msg) {
   if (msg.type === 'viewer-joined') {
     const {pc} = makePeer(msg.id);
     for (const track of stream.getTracks()) pc.addTrack(track, stream);
-    await pc.setLocalDescription(await pc.createOffer());
-    for (const sender of pc.getSenders()) {
-      if (sender.track.kind !== 'video') continue;
-      const p = sender.getParameters(); p.encodings ||= [{}];
-      if (!p.encodings.length) p.encodings.push({});
-      p.encodings[0].maxBitrate = captureRequest.bitrate * 1000000;
-      p.encodings[0].maxFramerate = captureRequest.fps;
-      p.degradationPreference = 'maintain-framerate';
-      await sender.setParameters(p).catch(() => {});
-    }
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription({type:offer.type, sdp:videoQualitySdp(offer.sdp, {mbps:captureRequest.bitrate, fps:captureRequest.fps})});
     send({type:'signal', to:msg.id, data:{description:pc.localDescription}});
     $('count').textContent = `${peers.size} зрителей`;
   }
@@ -85,12 +95,16 @@ async function handle(msg) {
     const peer = peers.get(isViewer ? 'host' : msg.from); if (!peer) return;
     const {pc} = peer, data = msg.data;
     if (data.description) {
-      await pc.setRemoteDescription(data.description);
+      const budget = isViewer ? videoBudget(data.description.sdp) : {mbps:captureRequest.bitrate, fps:captureRequest.fps};
+      peer.budget = budget;
+      await pc.setRemoteDescription(budget ? {...data.description, sdp:videoQualitySdp(data.description.sdp, budget)} : data.description);
       for (const c of peer.candidates.splice(0)) await pc.addIceCandidate(c);
       if (data.description.type === 'offer' && isViewer) {
-        await pc.setLocalDescription(await pc.createAnswer());
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(budget ? {type:answer.type, sdp:videoQualitySdp(answer.sdp, budget)} : answer);
         send({type:'signal', data:{description:pc.localDescription}});
       }
+      if (!isViewer) await setSenderQuality(pc);
     }
     if (data.candidate) {
       if (pc.remoteDescription) await pc.addIceCandidate(data.candidate);
@@ -136,6 +150,10 @@ $('join').onclick = () => {
   $('join').disabled = true; video.muted = false;
   connect({type:'join', room:params.get('room'), token:params.get('token'), roomCode});
 };
+$('chat-form').onsubmit = e => { e.preventDefault(); chat.post($('chat-input').value); $('chat-input').value = ''; };
+$('voice-toggle').onclick = () => chat.toggle();
+$('mic-toggle').onclick = () => chat.mute();
+$('voice-play').onclick = () => chat.play().catch(e => status(e.message));
 $('stop').onclick = () => cleanup(isViewer ? 'Вы отключились.' : 'Трансляция завершена.');
 $('play').onclick = () => video.play().then(() => { $('play').hidden = true; }).catch(() => status('Нажмите воспроизведение на плеере.'));
 $('copy').onclick = async () => {
@@ -149,14 +167,34 @@ function updateCaptureStats() {
   $('capture-stats').textContent = `Захват: ${settings.width || '—'}×${settings.height || '—'} · ${Math.round(settings.frameRate || 0)} FPS. Запрошено: ${captureRequest.height}p / ${captureRequest.fps} FPS · лимит ${captureRequest.bitrate} Мбит/с на зрителя. Фактическая передача может быть ниже.`;
 }
 function startStats() {
+  clearInterval(statTimer); const previous = new Map();
   statTimer = setInterval(async () => {
-    const pc = peers.get('host')?.pc; if (!pc || pc.connectionState !== 'connected') return;
-    const stats = await pc.getStats(); let transport, inbound;
-    stats.forEach(s => { if (s.type === 'transport') transport = s; if (s.type === 'inbound-rtp' && s.kind === 'video') inbound = s; });
-    const pair = stats.get(transport?.selectedCandidatePairId);
-    const local = stats.get(pair?.localCandidateId), remote = stats.get(pair?.remoteCandidateId);
-    const relay = local?.candidateType === 'relay' || remote?.candidateType === 'relay';
-    $('stats').textContent = `${relay ? 'Через TURN' : 'Прямое соединение'}${inbound ? ` · ${inbound.frameWidth || '—'}×${inbound.frameHeight || '—'} · ${inbound.framesPerSecond || 0} кадров/с` : ''}${pair?.currentRoundTripTime != null ? ` · RTT ${Math.round(pair.currentRoundTripTime * 1000)} мс` : ''}`;
+    const lines = [];
+    for (const [id, {pc}] of peers) {
+      if (pc.connectionState !== 'connected') continue;
+      const stats = await pc.getStats();
+      const reports = [...stats.values()];
+      const transport = reports.find(s => s.type === 'transport');
+      const rtp = reports.find(s => s.type === (isViewer ? 'inbound-rtp' : 'outbound-rtp') && s.kind === 'video');
+      const pair = stats.get(transport?.selectedCandidatePairId);
+      const local = stats.get(pair?.localCandidateId), remote = stats.get(pair?.remoteCandidateId);
+      const relay = local?.candidateType === 'relay' || remote?.candidateType === 'relay';
+      let rate = 0;
+      if (rtp) { const bytes = isViewer ? rtp.bytesReceived : rtp.bytesSent; const prev = previous.get(id); if (prev) rate = (bytes-prev.bytes)*8/(rtp.timestamp-prev.time)/1000; previous.set(id,{bytes,time:rtp.timestamp}); }
+      lines.push(`${relay ? 'Через TURN' : 'Прямое соединение'}${rtp ? ` · ${rtp.frameWidth || '—'}×${rtp.frameHeight || '—'} · ${rtp.framesPerSecond || 0} FPS · ${rate.toFixed(1)} Мбит/с · ${stats.get(rtp.codecId)?.mimeType || ''}${rtp.qualityLimitationReason ? ` · ограничение: ${rtp.qualityLimitationReason}` : ''}` : ''}${pair?.currentRoundTripTime != null ? ` · RTT ${Math.round(pair.currentRoundTripTime * 1000)} мс` : ''}${pair?.availableOutgoingBitrate ? ` · оценка канала ${(pair.availableOutgoingBitrate/1000000).toFixed(1)} Мбит/с` : ''}`);
+    }
+    $('stats').textContent = lines.join('\n');
   }, 2000);
 }
 window.addEventListener('pagehide', () => cleanup());
+
+async function setSenderQuality(pc) {
+  for (const sender of pc.getSenders()) {
+    if (sender.track?.kind !== 'video') continue;
+    const p = sender.getParameters(); p.encodings ||= [{}]; if (!p.encodings.length) p.encodings.push({});
+    for (const e of p.encodings) { e.maxBitrate = captureRequest.bitrate * 1000000; e.maxFramerate = captureRequest.fps; e.scaleResolutionDownBy = 1; }
+    p.degradationPreference = 'maintain-framerate';
+    try { await sender.setParameters(p); }
+    catch(e) { status(`WebRTC отклонил настройки видео: ${e.message}`); }
+  }
+}

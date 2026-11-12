@@ -63,9 +63,12 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
       widget.initialHostMode ??
       (defaultTargetPlatform == TargetPlatform.windows);
   bool working = false;
-  int height = 1080, fps = 60, bitrate = 20;
+  int height = 1080, fps = 120, bitrate = 35;
   String codec = 'H264';
-  bool keepResolution = true;
+  bool keepResolution = true, fullQuality = true, preview = false;
+  String? audioSourceId = '0';
+  final chatText = TextEditingController();
+  bool showChat = false;
   List<DesktopCapturerSource> sources = [];
   DesktopCapturerSource? source;
   final Map<String, String> certificates = {};
@@ -76,6 +79,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     session.addListener(_update);
+    session.chat.addListener(_update);
     unawaited(_load());
   }
 
@@ -243,6 +247,13 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
         setState(() {
           sources = list;
           source = list.isEmpty ? null : list.first;
+          if (audioSourceId != null &&
+              audioSourceId != '0' &&
+              !list.any(
+                (s) => s.type == SourceType.Window && s.id == audioSourceId,
+              )) {
+            audioSourceId = null;
+          }
         });
       }
     } catch (e) {
@@ -275,8 +286,11 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
             mbps: bitrate,
             codec: codec,
             keepResolution: keepResolution,
+            fullQuality: fullQuality,
           ),
           _ca(endpoint),
+          audioSourceId: audioSourceId,
+          preview: preview,
           certificatePin: certificatePins[endpoint.origin],
           confirmCertificate: _confirmCertificate,
           onCertificateRemembered: _rememberCertificate,
@@ -307,6 +321,8 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     session.removeListener(_update);
+    session.chat.removeListener(_update);
+    chatText.dispose();
     unawaited(session.shutdown());
     server.dispose();
     invite.dispose();
@@ -340,6 +356,83 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
             },
     ),
   );
+
+  Widget _chatPanel() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: Text('Чат команды · ${session.chat.members.length} на борту'),
+        value: showChat,
+        onChanged: (v) => setState(() => showChat = v),
+      ),
+      if (showChat) ...[
+        SizedBox(
+          height: 180,
+          child: ListView(
+            reverse: true,
+            children: session.chat.messages.reversed
+                .map(
+                  (m) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: SelectableText('${m.name}: ${m.text}'),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+        TextField(
+          controller: chatText,
+          maxLength: 2000,
+          decoration: InputDecoration(
+            labelText: 'Сообщение команде',
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.send),
+              onPressed: _sendChat,
+            ),
+          ),
+          onSubmitted: (_) => _sendChat(),
+        ),
+      ],
+      Wrap(
+        spacing: 8,
+        children: [
+          OutlinedButton.icon(
+            onPressed: session.chat.busy
+                ? null
+                : () => session.chat.toggleVoice(),
+            icon: Icon(session.chat.enabled ? Icons.call_end : Icons.mic),
+            label: Text(
+              session.chat.enabled
+                  ? 'Выйти из голосового чата'
+                  : 'Войти в голосовой чат',
+            ),
+          ),
+          if (session.chat.enabled)
+            OutlinedButton.icon(
+              onPressed: session.chat.toggleMute,
+              icon: Icon(session.chat.muted ? Icons.mic_off : Icons.mic),
+              label: Text(
+                session.chat.muted ? 'Включить микрофон' : 'Выключить микрофон',
+              ),
+            ),
+        ],
+      ),
+      if (session.chat.error.isNotEmpty)
+        Text(
+          session.chat.error,
+          style: const TextStyle(color: Colors.orangeAccent),
+        ),
+      const Text(
+        'Голосовой чат необязателен. Микрофон включается только после нажатия кнопки. Для избежания эха используйте наушники.',
+        style: TextStyle(fontSize: 12, color: Color(0xffb7a68e)),
+      ),
+    ],
+  );
+  void _sendChat() {
+    session.chat.post(chatText.text);
+    chatText.clear();
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -466,10 +559,56 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                             ? null
                             : (s) => setState(() => source = s),
                         decoration: const InputDecoration(
-                          labelText: 'Источник трансляции',
+                          labelText:
+                              'Источник трансляции · для 120+ FPS выбирайте DXGI',
                         ),
                       ),
                     ],
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey('audio-${sources.hashCode}'),
+                      initialValue: audioSourceId ?? 'none',
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Звук для зрителей',
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: '0',
+                          child: Text('Весь системный звук'),
+                        ),
+                        const DropdownMenuItem(
+                          value: 'none',
+                          child: Text('Без звука'),
+                        ),
+                        ...sources
+                            .where((s) => s.type == SourceType.Window)
+                            .map(
+                              (s) => DropdownMenuItem(
+                                value: s.id,
+                                child: Text(
+                                  'Приложение: ${s.name}',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                      ],
+                      onChanged: locked
+                          ? null
+                          : (v) => setState(
+                              () => audioSourceId = v == 'none' ? null : v,
+                            ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Звук выбранного приложения и его дочерних процессов — независимо от захватываемого экрана. Windows 11 / Server 2022 (build 20348+). Выбор одного приложения.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xffb7a68e),
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     Wrap(
                       spacing: 12,
@@ -497,6 +636,8 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                           50,
                           80,
                           100,
+                          150,
+                          200,
                         ], (v) => bitrate = v),
                         _choice<String>('Предпочтение кодека', codec, [
                           'H264',
@@ -507,20 +648,44 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                     ),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Приоритет чёткости'),
+                      title: const Text('Предпросмотр у капитана'),
                       subtitle: const Text(
-                        'Включён: сохранять разрешение. Выключен: сохранять FPS при нехватке канала.',
+                        'Выключен по умолчанию, чтобы оставить больше ресурсов для передачи видео.',
                       ),
-                      value: keepResolution,
+                      value: preview,
                       onChanged: locked
                           ? null
-                          : (v) => setState(() => keepResolution = v),
+                          : (v) => setState(() => preview = v),
                     ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Сохранять разрешение и FPS'),
+                      subtitle: const Text(
+                        'Высокий стартовый битрейт. Отключить автоматическое уменьшение кадра и FPS кодировщиком. Требует достаточного канала и мощности устройств.',
+                      ),
+                      value: fullQuality,
+                      onChanged: locked
+                          ? null
+                          : (v) => setState(() => fullQuality = v),
+                    ),
+                    if (!fullQuality)
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Приоритет чёткости'),
+                        subtitle: const Text(
+                          'Включён: сохранять разрешение. Выключен: сохранять FPS при нехватке канала.',
+                        ),
+                        value: keepResolution,
+                        onChanged: locked
+                            ? null
+                            : (v) => setState(() => keepResolution = v),
+                      ),
                     const Text(
                       'FPS и битрейт — цели, не обещание. Аппаратный кодек используется, если его предоставляет WebRTC/драйвер. Каждый зритель расходует исходящий канал отдельно.',
                       style: TextStyle(fontSize: 12, color: Color(0xffb7a68e)),
                     ),
                   ],
+                  if (session.connected) _chatPanel(),
                   const SizedBox(height: 20),
                   Wrap(
                     spacing: 12,

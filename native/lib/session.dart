@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'protocol.dart';
+import 'video_quality.dart';
+import 'room_chat.dart';
 import 'certificate_trust.dart';
 import 'signaling.dart';
 
@@ -17,6 +19,7 @@ class _Peer {
 
 class TavernSession extends ChangeNotifier {
   final renderer = RTCVideoRenderer();
+  late final chat = RoomChat((message) => _signaling?.send(message));
   final _peers = <String, _Peer>{};
   final _previousBytes = <String, (int, DateTime)>{};
   MediaStream? _capture;
@@ -72,6 +75,8 @@ class TavernSession extends ChangeNotifier {
     CaptureProfile profile,
     Uint8List? trustedCa, {
     String? certificatePin,
+    String? audioSourceId = '0',
+    bool preview = false,
     CertificateApprover? confirmCertificate,
     CertificateRememberer? onCertificateRemembered,
   }) async {
@@ -79,6 +84,11 @@ class TavernSession extends ChangeNotifier {
       throw const FormatException('Трансляция доступна в Windows-клиенте.');
     }
     validateRoomCode(code);
+    if (profile.fps > 60 && !source.id.startsWith('dxgi:')) {
+      throw const FormatException(
+        'Для 120–240 FPS выберите экран с пометкой DXGI. Захват отдельного окна библиотекой ограничен 60 FPS.',
+      );
+    }
     await stop();
     final epoch = _epoch;
     busy = true;
@@ -90,7 +100,7 @@ class TavernSession extends ChangeNotifier {
     try {
       await initialize();
       final capture = await navigator.mediaDevices.getDisplayMedia(
-        profile.constraints(source.id),
+        profile.constraints(source.id, audioSourceId: audioSourceId),
       );
       if (epoch != _epoch) {
         for (final t in capture.getTracks()) {
@@ -107,9 +117,9 @@ class TavernSession extends ChangeNotifier {
       }
       // The native texture renders video only; muting this local audio track would
       // also silence the WASAPI track sent to viewers.
-      renderer.srcObject = capture;
-      hasVideo = true;
-      if (capture.getAudioTracks().isEmpty) {
+      if (preview) renderer.srcObject = capture;
+      hasVideo = preview;
+      if (audioSourceId != null && capture.getAudioTracks().isEmpty) {
         warning = 'Системный звук недоступен. Передаётся только изображение.';
       }
       await _connect(
@@ -260,6 +270,15 @@ class TavernSession extends ChangeNotifier {
   }
 
   Future<void> _handle(Map<String, dynamic> msg, int epoch) async {
+    if (['members', 'chat', 'voice-signal'].contains(msg['type'])) {
+      try {
+        await chat.handle(msg);
+      } catch (e) {
+        chat.error = 'Ошибка голосового чата: $e';
+        _changed();
+      }
+      return;
+    }
     switch (msg['type']) {
       case 'error':
         await stop(msg['message'] as String? ?? 'Ошибка комнаты.');
@@ -267,6 +286,8 @@ class TavernSession extends ChangeNotifier {
         await stop('Капитан завершил трансляцию. Нужна новая ссылка.');
       case 'created':
         _iceServers = msg['iceServers'] as List<dynamic>;
+        chat.iceServers = _iceServers;
+        chat.selfId = msg['id'] as String? ?? '';
         invitation = RoomInvite(
           _origin!,
           msg['room'] as String,
@@ -279,6 +300,8 @@ class TavernSession extends ChangeNotifier {
         _changed();
       case 'joined':
         _iceServers = msg['iceServers'] as List<dynamic>;
+        chat.iceServers = _iceServers;
+        chat.selfId = msg['id'] as String? ?? '';
         await _newPeer('host', epoch);
         _startStats(epoch);
       case 'viewer-joined':
@@ -289,7 +312,13 @@ class TavernSession extends ChangeNotifier {
             await peer.pc.addTrack(track, _capture!);
           }
           await _preferCodec(peer.pc);
-          await peer.pc.setLocalDescription(await peer.pc.createOffer());
+          final offer = await peer.pc.createOffer();
+          await peer.pc.setLocalDescription(
+            RTCSessionDescription(
+              videoQualitySdp(offer.sdp!, _profile),
+              offer.type,
+            ),
+          );
           _signaling?.send({
             'type': 'signal',
             'to': id,
@@ -315,9 +344,11 @@ class TavernSession extends ChangeNotifier {
         final data = Map<String, dynamic>.from(msg['data'] as Map);
         if (data['description'] != null) {
           final desc = Map<String, dynamic>.from(data['description'] as Map);
+          final remoteSdp = desc['sdp'] as String;
+          if (!hosting) _profile = videoBudget(remoteSdp) ?? _profile;
           await peer.pc.setRemoteDescription(
             RTCSessionDescription(
-              desc['sdp'] as String?,
+              videoQualitySdp(remoteSdp, _profile),
               desc['type'] as String?,
             ),
           );
@@ -327,7 +358,13 @@ class TavernSession extends ChangeNotifier {
           }
           peer.candidates.clear();
           if (!hosting && desc['type'] == 'offer') {
-            await peer.pc.setLocalDescription(await peer.pc.createAnswer());
+            final answer = await peer.pc.createAnswer();
+            await peer.pc.setLocalDescription(
+              RTCSessionDescription(
+                videoQualitySdp(answer.sdp!, _profile),
+                answer.type,
+              ),
+            );
             _signaling?.send({
               'type': 'signal',
               'data': {
@@ -392,9 +429,13 @@ class TavernSession extends ChangeNotifier {
       if (p.encodings!.isEmpty) p.encodings!.add(RTCRtpEncoding());
       for (final e in p.encodings!) {
         e.maxBitrate = _profile.mbps * 1000000;
+        e.minBitrate = _profile.fullQuality ? (_profile.mbps * 600000) : 0;
+        e.scaleResolutionDownBy = 1.0;
         e.maxFramerate = _profile.fps;
       }
-      p.degradationPreference = _profile.keepResolution
+      p.degradationPreference = _profile.fullQuality
+          ? RTCDegradationPreference.MAINTAIN_FRAMERATE_AND_RESOLUTION
+          : _profile.keepResolution
           ? RTCDegradationPreference.MAINTAIN_RESOLUTION
           : RTCDegradationPreference.MAINTAIN_FRAMERATE;
       try {
@@ -404,6 +445,23 @@ class TavernSession extends ChangeNotifier {
       } catch (_) {
         warning =
             'Параметры качества отклонены кодеком; проверьте фактическую статистику.';
+      }
+    }
+    // getSenders refreshes parameters from native WebRTC; sender.parameters is a snapshot.
+    for (final sender in await pc.getSenders()) {
+      if (sender.track?.kind != 'video') continue;
+      if ((_profile.fullQuality &&
+              sender.parameters.degradationPreference !=
+                  RTCDegradationPreference.MAINTAIN_FRAMERATE_AND_RESOLUTION) ||
+          sender.parameters.encodings?.any(
+                (e) =>
+                    e.maxBitrate == _profile.mbps * 1000000 &&
+                    e.maxFramerate == _profile.fps &&
+                    e.scaleResolutionDownBy == 1.0,
+              ) !=
+              true) {
+        warning =
+            'WebRTC не подтвердил битрейт/FPS. Проверьте фактическую статистику.';
       }
     }
     _changed();
@@ -455,14 +513,16 @@ class TavernSession extends ChangeNotifier {
                   local?['candidateType'] == 'relay' ||
                   remote?['candidateType'] == 'relay';
               final rtt = (v['currentRoundTripTime'] as num?);
+              final bandwidth = v['availableOutgoingBitrate'] as num?;
               lines.add(
-                '${relay ? 'TURN' : 'Прямое соединение'}${rtt == null ? '' : ' · RTT ${(rtt * 1000).round()} мс'}',
+                '${relay ? 'TURN' : 'Прямое соединение'}${rtt == null ? '' : ' · RTT ${(rtt * 1000).round()} мс'}${bandwidth == null ? '' : ' · оценка канала ${(bandwidth / 1000000).toStringAsFixed(1)} Мбит/с'}',
               );
             }
           }
         }
         if (epoch == _epoch) {
-          metrics = lines.join('\n');
+          metrics =
+              '${hosting ? 'Цель на зрителя' : 'Согласовано'}: ${_profile.mbps} Мбит/с · ${_profile.fps} FPS\n${lines.join('\n')}';
           _changed();
         }
       } catch (_) {
@@ -498,16 +558,23 @@ class TavernSession extends ChangeNotifier {
     _remote = null;
     if (renderer.textureId != null) renderer.srcObject = null;
     try {
-      await signaling?.close();
+      await releaseMedia(() => chat.reset());
+      await releaseMedia(() async {
+        await signaling?.close();
+      });
       for (final p in peers) {
-        await p.pc.close();
-        await p.pc.dispose();
+        await releaseMedia(() => p.pc.close());
+        await releaseMedia(() => p.pc.dispose());
       }
       for (final t in capture?.getTracks() ?? <MediaStreamTrack>[]) {
-        await t.stop();
+        await releaseMedia(() => t.stop());
       }
-      await capture?.dispose();
-      await remote?.dispose();
+      await releaseMedia(() async {
+        await capture?.dispose();
+      });
+      await releaseMedia(() async {
+        await remote?.dispose();
+      });
     } finally {
       busy = false;
       connected = false;
