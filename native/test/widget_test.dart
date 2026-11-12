@@ -37,6 +37,56 @@ void main() {
     );
   }
   testWidgets(
+    'high FPS excludes H264 and switches back to VP8 when FPS increases',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      try {
+        SharedPreferences.setMockInitialValues({});
+        await tester.pumpWidget(const TavernApp(initialHostMode: true));
+        await tester.pumpAndSettle();
+        const fpsKey = ValueKey('Частота, FPS:30,60,120,144,165,240');
+        const fastKey = ValueKey('Предпочтение кодека:VP8,VP9');
+        const slowKey = ValueKey('Предпочтение кодека:VP8,VP9,H264');
+        expect(
+          tester
+              .widget<DropdownButtonFormField<String>>(find.byKey(fastKey))
+              .initialValue,
+          'VP8',
+        );
+        await tester.ensureVisible(find.byKey(fpsKey));
+        await tester.tap(find.byKey(fpsKey));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('60').last);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(slowKey));
+        await tester.tap(find.byKey(slowKey));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('H264').last);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(fpsKey));
+        await tester.tap(find.byKey(fpsKey));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('120').last);
+        await tester.pumpAndSettle();
+        expect(find.byKey(slowKey), findsNothing);
+        final codecs = tester.widget<DropdownButtonFormField<String>>(
+          find.byKey(fastKey),
+        );
+        expect(codecs.initialValue, 'VP8');
+        await tester.ensureVisible(find.byKey(fastKey));
+        await tester.tap(find.byKey(fastKey));
+        await tester.pumpAndSettle();
+        expect(find.text('H264'), findsNothing);
+        await tester.tapAt(const Offset(5, 5));
+        await tester.pumpAndSettle();
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpAndSettle();
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+  testWidgets(
     'reset trust clears only the selected server CA and certificate pin',
     (tester) async {
       const first = 'https://one.example:8443',

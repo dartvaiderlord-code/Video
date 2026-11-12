@@ -60,7 +60,7 @@ class CaptureProfile {
     this.height = 1080,
     this.fps = 120,
     this.mbps = 35,
-    this.codec = 'H264',
+    this.codec = 'VP8',
     this.keepResolution = true,
     this.fullQuality = true,
   });

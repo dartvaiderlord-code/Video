@@ -64,7 +64,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
       (defaultTargetPlatform == TargetPlatform.windows);
   bool working = false;
   int height = 1080, fps = 120, bitrate = 35;
-  String codec = 'H264';
+  String codec = 'VP8';
   bool keepResolution = true, fullQuality = true, preview = false;
   String? audioSourceId = '0';
   final chatText = TextEditingController();
@@ -339,6 +339,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
   }) => SizedBox(
     width: 175,
     child: DropdownButtonFormField<T>(
+      key: ValueKey('$label:${values.join(',')}'),
       initialValue: value,
       decoration: InputDecoration(labelText: label),
       items: values
@@ -620,14 +621,17 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                           1440,
                           2160,
                         ], (v) => height = v),
-                        _choice<int>('Частота, FPS', fps, [
-                          30,
-                          60,
-                          120,
-                          144,
-                          165,
-                          240,
-                        ], (v) => fps = v),
+                        _choice<int>(
+                          'Частота, FPS',
+                          fps,
+                          [30, 60, 120, 144, 165, 240],
+                          (v) {
+                            fps = v;
+                            if (fps > 60 && codec == 'H264') {
+                              codec = 'VP8';
+                            }
+                          },
+                        ),
                         _choice<int>('Мбит/с на зрителя', bitrate, [
                           8,
                           12,
@@ -640,9 +644,9 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                           200,
                         ], (v) => bitrate = v),
                         _choice<String>('Предпочтение кодека', codec, [
-                          'H264',
-                          'VP9',
                           'VP8',
+                          'VP9',
+                          if (fps <= 60) 'H264',
                         ], (v) => codec = v),
                       ],
                     ),
@@ -681,7 +685,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                             : (v) => setState(() => keepResolution = v),
                       ),
                     const Text(
-                      'FPS и битрейт — цели, не обещание. Аппаратный кодек используется, если его предоставляет WebRTC/драйвер. Каждый зритель расходует исходящий канал отдельно.',
+                      'Для 120+ FPS используются VP8/VP9: OpenH264 ограничивает настройку кодировщика 60 FPS. FPS и битрейт — цели, не обещание. Аппаратный кодек используется, если его предоставляет WebRTC/драйвер. Каждый зритель расходует исходящий канал отдельно.',
                       style: TextStyle(fontSize: 12, color: Color(0xffb7a68e)),
                     ),
                   ],

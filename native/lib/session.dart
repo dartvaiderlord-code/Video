@@ -394,11 +394,17 @@ class TavernSession extends ChangeNotifier {
     try {
       final capabilities = await getRtpSenderCapabilities('video');
       final codecs = capabilities.codecs ?? [];
+      final requestedCodec = _profile.fps > 60 && _profile.codec == 'H264'
+          ? 'VP8'
+          : _profile.codec;
+      if (requestedCodec != _profile.codec) {
+        warning = 'Для 120+ FPS выбран VP8: OpenH264 ограничен 60 FPS.';
+      }
       final preferred = codecs
           .where(
             (c) =>
                 c.mimeType.toLowerCase() ==
-                'video/${_profile.codec.toLowerCase()}',
+                'video/${requestedCodec.toLowerCase()}',
           )
           .toList();
       if (preferred.isEmpty) {
