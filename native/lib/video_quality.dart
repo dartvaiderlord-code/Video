@@ -4,7 +4,7 @@ import 'protocol.dart';
 /// Keep codec profile/packetization, audio, RTX and transport attributes intact.
 String videoQualitySdp(String sdp, CaptureProfile profile) {
   final kbps = profile.mbps * 1000;
-  return sdp.split(RegExp(r'(?=m=)')).map((section) {
+  return sdp.split(RegExp(r'(?=^m=)', multiLine: true)).map((section) {
     if (!section.startsWith('m=video ') || section.startsWith('m=video 0 ')) {
       return section;
     }
@@ -66,7 +66,7 @@ String videoQualitySdp(String sdp, CaptureProfile profile) {
 
 CaptureProfile? videoBudget(String sdp) {
   final sections = sdp
-      .split(RegExp(r'(?=m=)'))
+      .split(RegExp(r'(?=^m=)', multiLine: true))
       .where((s) => s.startsWith('m=video '));
   if (sections.isEmpty) return null;
   final section = sections.first;

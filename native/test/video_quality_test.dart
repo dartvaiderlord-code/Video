@@ -5,7 +5,7 @@ import 'package:pirate_tavern/video_quality.dart';
 void main() {
   test('bidirectional video budget preserves H264 profile, RTX and audio', () {
     const audio =
-        'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\nb=AS:64\r\na=rtpmap:111 opus/48000/2\r\n';
+        'v=0\r\na=ice-pwd:random=\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\nb=AS:64\r\na=rtpmap:111 opus/48000/2\r\n';
     const input =
         '${audio}m=video 9 UDP/TLS/RTP/SAVPF 96 97 102\r\nc=IN IP4 0.0.0.0\r\nb=AS:2500\r\na=rtpmap:96 VP8/90000\r\na=rtpmap:97 rtx/90000\r\na=fmtp:97 apt=96\r\na=rtpmap:102 H264/90000\r\na=fmtp:102 packetization-mode=1;profile-level-id=42e01f;x-google-max-bitrate=2500\r\n';
     const profile = CaptureProfile(mbps: 50, fps: 144);

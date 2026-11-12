@@ -1,7 +1,7 @@
 // Negotiate the budget in both directions. Sender maxBitrate alone does not
 // replace WebRTC's codec/default (often 2.5 Mbps) bandwidth configuration.
 export function videoBudget(sdp) {
-  const section = sdp.split(/(?=m=)/).find(s => s.startsWith('m=video '));
+  const section = sdp.split(/(?=^m=)/m).find(s => s.startsWith('m=video '));
   if (!section) return null;
   const bps = Number(section.match(/^b=TIAS:(\d+)/m)?.[1]) || Number(section.match(/^b=AS:(\d+)/m)?.[1]) * 1000;
   const fps = Number(section.match(/^a=framerate:(\d+)/m)?.[1]) || 60;
@@ -10,7 +10,7 @@ export function videoBudget(sdp) {
 export function videoQualitySdp(sdp, {mbps, fps, fullQuality = true}) {
   if (!(mbps >= 1 && mbps <= 200 && fps >= 1 && fps <= 240)) throw new Error('Invalid video budget');
   const kbps = Math.round(mbps * 1000);
-  return sdp.split(/(?=m=)/).map(section => {
+  return sdp.split(/(?=^m=)/m).map(section => {
     if (!section.startsWith('m=video ') || section.startsWith('m=video 0 ')) return section;
     const lines = section.trimEnd().split(/\r?\n/).filter(l => !/^b=(AS|TIAS):/.test(l) && !l.startsWith('a=framerate:'));
     const at = lines.findIndex(l => l.startsWith('c='));
