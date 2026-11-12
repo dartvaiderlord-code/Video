@@ -140,7 +140,7 @@ class TavernSession extends ChangeNotifier {
 
   String _failure(Object e) {
     if (e is HandshakeException) {
-      return 'Сертификат не принят. Импортируйте root.crt этого сервера и сверьте отпечаток.';
+      return 'Проверка TLS не пройдена. Проверьте адрес и срок сертификата; для своего CA импортируйте root.crt и сверьте отпечаток.';
     }
     if (e is SocketException || e is TimeoutException) {
       return 'Сервер недоступен. Проверьте адрес, порт и сеть.';
@@ -439,10 +439,11 @@ class TavernSession extends ChangeNotifier {
   Future<void> toggleAudio() async {
     final tracks = _remote?.getAudioTracks() ?? <MediaStreamTrack>[];
     if (tracks.isEmpty) return;
-    playbackMuted = !playbackMuted;
+    final nextMuted = !playbackMuted;
     for (final track in tracks) {
-      await Helper.setVolume(playbackMuted ? 0.0 : 1.0, track);
+      await Helper.setVolume(nextMuted ? 0.0 : 1.0, track);
     }
+    playbackMuted = nextMuted;
     _changed();
   }
 

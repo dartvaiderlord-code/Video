@@ -385,6 +385,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                     if (sources.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       DropdownButtonFormField<DesktopCapturerSource>(
+                        key: ValueKey(sources),
                         initialValue: source,
                         isExpanded: true,
                         items: sources
