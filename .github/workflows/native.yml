@@ -50,7 +50,17 @@ jobs:
       - run: flutter test
       - name: Build Windows portable app
         if: matrix.target == 'windows'
-        run: flutter build windows --release
+        shell: pwsh
+        run: |
+          flutter build windows --release 2>&1 | Tee-Object -FilePath windows-build.log
+          $buildExitCode = $LASTEXITCODE
+          if ($buildExitCode -ne 0) {
+            Get-Content windows-build.log -Tail 40 | ForEach-Object {
+              $message = $_.ToString().Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Output "::error::$message"
+            }
+            exit $buildExitCode
+          }
       - name: Build Android APK (test signing)
         if: matrix.target == 'android'
         run: flutter build apk --release --target-platform android-arm64,android-arm

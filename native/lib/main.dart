@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -56,7 +57,9 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
   final server = TextEditingController();
   final invite = TextEditingController();
   final code = TextEditingController();
-  late bool hostMode = widget.initialHostMode ?? Platform.isWindows;
+  late bool hostMode =
+      widget.initialHostMode ??
+      (defaultTargetPlatform == TargetPlatform.windows);
   bool working = false;
   int height = 1080, fps = 60, bitrate = 20;
   String codec = 'H264';
@@ -300,13 +303,13 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    Platform.isWindows
+                    (defaultTargetPlatform == TargetPlatform.windows)
                         ? 'Windows · экран и системный звук'
                         : 'Android · нативный просмотр',
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
                   const SizedBox(height: 20),
-                  if (Platform.isWindows) ...[
+                  if (defaultTargetPlatform == TargetPlatform.windows) ...[
                     SegmentedButton<bool>(
                       segments: const [
                         ButtonSegment(
