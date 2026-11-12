@@ -52,13 +52,12 @@ jobs:
         if: matrix.target == 'windows'
         shell: pwsh
         run: |
-          flutter build windows --release 2>&1 | Tee-Object -FilePath windows-build.log
+          flutter build windows --release --no-pub 2>&1 | Tee-Object -FilePath windows-build.log
           $buildExitCode = $LASTEXITCODE
           if ($buildExitCode -ne 0) {
-            Get-Content windows-build.log -Tail 40 | ForEach-Object {
-              $message = $_.ToString().Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
-              Write-Output "::error::$message"
-            }
+            $message = (Get-Content windows-build.log -Tail 60) -join "`n"
+            $message = $message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error::$message"
             exit $buildExitCode
           }
       - name: Windows capture conflict probe
@@ -68,7 +67,9 @@ jobs:
           cmake --build build/windows/x64 --config Release --target pirate_capture_probe 2>&1 | Tee-Object -FilePath capture-probe-build.log
           $probeExitCode = $LASTEXITCODE
           if ($probeExitCode -ne 0) {
-            Get-Content capture-probe-build.log -Tail 30 | ForEach-Object { Write-Output "::error::$_" }
+            $message = (Get-Content capture-probe-build.log -Tail 40) -join "`n"
+            $message = $message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error::$message"
             exit $probeExitCode
           }
           & ".\build\windows\x64\diagnostics\Release\pirate_capture_probe.exe"
