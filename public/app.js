@@ -5,19 +5,23 @@ const isViewer = params.has('room');
 let socket, stream, iceServers, active = false, intentional = false;
 const peers = new Map();
 let statTimer;
+let captureTimer;
+let captureRequest;
 const status = message => { $('status').textContent = message; };
 const send = msg => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg)); };
 if (isViewer) {
   $('title').textContent = 'Вас пригласили на просмотр';
-  $('host-options').hidden = true; $('start').hidden = true; $('join').hidden = false;
-  $('count').hidden = true; status('Нажмите кнопку, чтобы подключиться к трансляции.');
+  $('host-options').hidden = true; $('viewer-options').hidden = false; $('start').hidden = true; $('join').hidden = false;
+  $('count').hidden = true; status('Введите код от капитана и присоединяйтесь к трансляции.');
 }
 function cleanup(message) {
   intentional = true; active = false;
   socket?.close(); socket = null;
   for (const {pc} of peers.values()) pc.close(); peers.clear();
   stream?.getTracks().forEach(track => track.stop()); stream = null;
-  clearInterval(statTimer); video.srcObject = null;
+  clearInterval(statTimer); clearInterval(captureTimer);
+  $('capture-stats').hidden = true;
+  $('viewer-options').hidden = !isViewer; video.srcObject = null;
   $('stage').hidden = true; $('invite').hidden = true; $('stop').hidden = true;
   $('start').hidden = isViewer; $('start').disabled = false;
   $('join').hidden = !isViewer; $('join').disabled = false;
@@ -53,7 +57,7 @@ async function handle(msg) {
   }
   if (msg.type === 'joined') {
     iceServers = msg.iceServers; active = true; makePeer('host');
-    $('join').hidden = true; $('stop').hidden = false;
+    $('join').hidden = true; $('viewer-options').hidden = true; $('stop').hidden = false;
     $('stop').textContent = 'Отключиться'; status('Подключаем видео…');
     startStats();
   }
@@ -64,7 +68,9 @@ async function handle(msg) {
     for (const sender of pc.getSenders()) {
       if (sender.track.kind !== 'video') continue;
       const p = sender.getParameters(); p.encodings ||= [{}];
-      p.encodings[0].maxBitrate = Number($('bitrate').value) * 1000000;
+      if (!p.encodings.length) p.encodings.push({});
+      p.encodings[0].maxBitrate = captureRequest.bitrate * 1000000;
+      p.encodings[0].maxFramerate = captureRequest.fps;
       p.degradationPreference = 'maintain-framerate';
       await sender.setParameters(p).catch(() => {});
     }
@@ -106,24 +112,29 @@ function connect(firstMessage) {
 }
 $('start').onclick = async () => {
   if (!navigator.mediaDevices?.getDisplayMedia) return status('Для передачи экрана откройте сайт по HTTPS в Chrome/Edge на компьютере.');
+  const roomCode = $('room-code').value.trim();
+  if (roomCode.length < 4 || roomCode.length > 64) return status('Придумайте код комнаты: от 4 до 64 символов.');
   $('start').disabled = true;
   try {
-    const quality = $('quality').value;
+    captureRequest = {height:Number($('quality').value), fps:Number($('fps').value), bitrate:Number($('bitrate').value)};
     stream = await navigator.mediaDevices.getDisplayMedia({
-      video:{height:{ideal:quality === '720' ? 720 : 1080}, frameRate:{ideal:quality === '1080' ? 30 : 60}},
+      video:{height:{ideal:captureRequest.height}, frameRate:{ideal:captureRequest.fps, max:captureRequest.fps}},
       audio:true, systemAudio:'include', selfBrowserSurface:'exclude', surfaceSwitching:'include'
     });
+    captureTimer = setInterval(updateCaptureStats, 2000); updateCaptureStats();
     stream.getVideoTracks()[0].contentHint = 'motion';
     stream.getVideoTracks()[0].onended = () => cleanup('Трансляция завершена.');
     video.muted = true; video.srcObject = stream; $('stage').hidden = false;
     video.play().catch(() => {});
-    status('Создаём комнату…'); connect({type:'create', accessKey:$('access-key').value});
+    status('Создаём комнату…'); connect({type:'create', roomCode});
   } catch (e) { cleanup(e.name === 'NotAllowedError' ? 'Выбор экрана отменён или доступ не разрешён.' : 'Не удалось захватить экран: ' + e.message); }
 };
 $('join').onclick = () => {
   if (!window.RTCPeerConnection) return status('Браузер не поддерживает WebRTC.');
+  const roomCode = $('join-code').value.trim();
+  if (roomCode.length < 4 || roomCode.length > 64) return status('Введите код комнаты от капитана: от 4 до 64 символов.');
   $('join').disabled = true; video.muted = false;
-  connect({type:'join', room:params.get('room'), token:params.get('token')});
+  connect({type:'join', room:params.get('room'), token:params.get('token'), roomCode});
 };
 $('stop').onclick = () => cleanup(isViewer ? 'Вы отключились.' : 'Трансляция завершена.');
 $('play').onclick = () => video.play().then(() => { $('play').hidden = true; }).catch(() => status('Нажмите воспроизведение на плеере.'));
@@ -131,6 +142,12 @@ $('copy').onclick = async () => {
   try { await navigator.clipboard.writeText($('link').value); $('copy').textContent = 'Скопировано'; setTimeout(() => { $('copy').textContent = 'Копировать'; }, 1800); }
   catch { $('link').select(); status('Скопируйте выделенную ссылку вручную.'); }
 };
+function updateCaptureStats() {
+  const track = stream?.getVideoTracks()[0]; if (!track) return;
+  const settings = track.getSettings();
+  $('capture-stats').hidden = false;
+  $('capture-stats').textContent = `Захват: ${settings.width || '—'}×${settings.height || '—'} · ${Math.round(settings.frameRate || 0)} FPS. Запрошено: ${captureRequest.height}p / ${captureRequest.fps} FPS · лимит ${captureRequest.bitrate} Мбит/с на зрителя. Фактическая передача может быть ниже.`;
+}
 function startStats() {
   statTimer = setInterval(async () => {
     const pc = peers.get('host')?.pc; if (!pc || pc.connectionState !== 'connected') return;

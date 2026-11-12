@@ -7,7 +7,6 @@ services:
       - "127.0.0.1:${APP_PORT:-3100}:3000"
     environment:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN in .env}
-      ACCESS_KEY: ${ACCESS_KEY:?Generate ACCESS_KEY in .env}
       MAX_VIEWERS: ${MAX_VIEWERS:-6}
       TURN_URLS: ${TURN_URLS:-}
       TURN_SECRET: ${TURN_SECRET:-}

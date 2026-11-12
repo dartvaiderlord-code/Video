@@ -22,9 +22,10 @@ test('standalone configuration is private, portable, and never overwrites existi
   assert.match(env, /PUBLIC_ORIGIN=https:\/\/stream.example.com:9443\n/);
   assert.match(env, /TURN_URLS=turn:203.0.113.10:3480\?transport=udp,turn:203.0.113.10:3480\?transport=tcp/);
   assert.equal(statSync(file).mode & 0o777, 0o600);
-  const access = env.match(/^ACCESS_KEY=(.+)$/m)[1], secret = env.match(/^TURN_SECRET=(.+)$/m)[1];
-  assert.notEqual(access, secret);
-  assert.equal(result.stdout.includes(access) || result.stdout.includes(secret), false);
+  const secret = env.match(/^TURN_SECRET=(.+)$/m)[1];
+  assert.match(secret, /^[a-f0-9]{64}$/);
+  assert.equal(env.includes('ACCESS_KEY='), false);
+  assert.equal(result.stdout.includes(secret), false);
   assert.notEqual(run(['203.0.113.20']).status, 0);
   assert.equal(readFileSync(file, 'utf8'), env);
 });

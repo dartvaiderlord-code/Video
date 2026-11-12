@@ -46,7 +46,6 @@ if [ -e "$env_file" ] || [ -L "$env_file" ]; then
     echo 'Configuration already exists; preserve it and edit it manually.' >&2; exit 1
 fi
 command -v openssl >/dev/null
-access_key=$(openssl rand -hex 24)
 turn_secret=$(openssl rand -hex 32)
 umask 077
 set -C
@@ -56,7 +55,6 @@ PUBLIC_ORIGIN=https://$host:$https_port
 HTTPS_PORT=$https_port
 APP_PORT=$app_port
 MAX_VIEWERS=6
-ACCESS_KEY=$access_key
 TURN_PUBLIC_IP=$public_ip
 TURN_PORT=$turn_port
 TURN_MIN_PORT=$turn_min
@@ -64,7 +62,7 @@ TURN_MAX_PORT=$turn_max
 TURN_URLS=turn:$public_ip:$turn_port?transport=udp,turn:$public_ip:$turn_port?transport=tcp
 TURN_SECRET=$turn_secret
 CONFIG
-unset access_key turn_secret
+unset turn_secret
 echo "Created private configuration for https://$host:$https_port"
-echo 'ACCESS_KEY in .env is the room creation code. Keep TURN_SECRET private.'
+echo 'Choose a room code in the browser. Keep TURN_SECRET private.'
 echo 'Start: docker compose -p screenroom -f compose.yaml -f compose.selfsigned.yaml -f compose.turn.yaml up -d --build'

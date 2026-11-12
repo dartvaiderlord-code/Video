@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { randomBytes, createHmac } from 'node:crypto';
+import { randomBytes, createHmac, createHash, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 
@@ -9,7 +9,7 @@ export function createApp(env = process.env) {
   const maxViewers = Number(env.MAX_VIEWERS || 6);
   const turnUrls = (env.TURN_URLS || '').split(',').map(s => s.trim()).filter(Boolean);
   if (turnUrls.length && !env.TURN_SECRET) throw new Error('TURN_SECRET is required with TURN_URLS');
-  const files = new Map([['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']]]);
+  const files = new Map([['/', ['index.html', 'text/html']], ['/app.js', ['app.js', 'text/javascript']], ['/style.css', ['style.css', 'text/css']], ['/pirate-flag.svg', ['pirate-flag.svg', 'image/svg+xml']]]);
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -54,16 +54,27 @@ export function createApp(env = process.env) {
       if (!msg || typeof msg !== 'object') return;
       if (!ws.room) {
         if (msg.type === 'create') {
-          if (env.ACCESS_KEY && msg.accessKey !== env.ACCESS_KEY) return send(ws, {type:'error', message:'Неверный код создания комнаты.'});
+          const code = typeof msg.roomCode === 'string' ? msg.roomCode.trim() : '';
+          if (code.length < 4 || code.length > 64) return send(ws, {type:'error', message:'Код комнаты должен содержать от 4 до 64 символов.'});
           if (rooms.size >= 100) return send(ws, {type:'error', message:'Сервер занят. Попробуйте позже.'});
           const id = randomBytes(12).toString('hex'), token = randomBytes(24).toString('hex');
           ws.host = true; ws.room = id;
-          rooms.set(id, {host:ws, token, viewers:new Map()});
+          const salt = randomBytes(16).toString('hex');
+          const codeHash = createHash('sha256').update(salt + code).digest();
+          rooms.set(id, {host:ws, token, salt, codeHash, attempts:0, attemptsSince:Date.now(), viewers:new Map()});
           clearTimeout(authTimer);
           send(ws, {type:'created', room:id, token, iceServers:ice(), maxViewers});
         } else if (msg.type === 'join') {
           const room = rooms.get(msg.room);
           if (!room || room.token !== msg.token) return send(ws, {type:'error', message:'Комната не найдена или ссылка недействительна.'});
+          if (Date.now() - room.attemptsSince >= 30000) { room.attempts = 0; room.attemptsSince = Date.now(); }
+          if (room.attempts >= 20) return send(ws, {type:'error', message:'Слишком много неверных кодов. Попробуйте через 30 секунд.'});
+          const code = typeof msg.roomCode === 'string' ? msg.roomCode.trim() : '';
+          const supplied = createHash('sha256').update(room.salt + code).digest();
+          if (code.length < 4 || code.length > 64 || !timingSafeEqual(supplied, room.codeHash)) {
+            room.attempts++;
+            return send(ws, {type:'error', message:'Неверный код комнаты.'});
+          }
           if (room.viewers.size >= maxViewers) return send(ws, {type:'error', message:'Комната заполнена.'});
           ws.room = msg.room; room.viewers.set(ws.id, ws); clearTimeout(authTimer);
           send(ws, {type:'joined', id:ws.id, iceServers:ice()});
@@ -100,6 +111,6 @@ export function createApp(env = process.env) {
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const app = createApp();
-  app.server.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => console.log('Screenroom listening on port', process.env.PORT || 3000));
+  app.server.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => console.log('Пиратский трактир — порт', process.env.PORT || 3000));
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => app.close().then(() => process.exit(0)));
 }
