@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+certs/
+coverage/
+test-results/

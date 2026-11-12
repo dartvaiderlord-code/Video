@@ -1,0 +1,28 @@
+# Standalone HTTPS on a separate port, with a persistent local certificate authority.
+# Combine with compose.yaml; do not combine with other HTTPS overrides.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTPS_PORT:-8443}:8443"
+    environment:
+      # Internal Docker service traffic must stay local even with an outbound proxy.
+      NO_PROXY: "${NO_PROXY:-localhost,127.0.0.1},app"
+      no_proxy: "${no_proxy:-localhost,127.0.0.1},app"
+      DOMAIN: ${DOMAIN:?Set DOMAIN to the hostname or IPv4 used in the browser}
+    volumes:
+      - ./deploy/Caddyfile.selfsigned:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+volumes:
+  caddy_data:
+  caddy_config:

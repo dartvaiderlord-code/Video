@@ -1,0 +1,7 @@
+{
+	auto_https disable_redirects
+}
+https://{$DOMAIN}:8443 {
+	tls /certs/{$TLS_CERT_FILE} /certs/{$TLS_KEY_FILE}
+	reverse_proxy app:3000
+}

@@ -1,0 +1,11 @@
+.git
+node_modules
+.env
+.env.*
+test
+playwright*
+test-results
+*.pem
+*.key
+*.crt
+certs

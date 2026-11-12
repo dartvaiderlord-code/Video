@@ -1,0 +1,26 @@
+# Linux host networking: TURN advertises the real host IP and relay port range.
+services:
+  turn:
+    image: coturn/coturn:4.6.3
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TURN_SECRET: ${TURN_SECRET:?Generate TURN_SECRET}
+      TURN_PUBLIC_IP: ${TURN_PUBLIC_IP:?Set the public IPv4 of your Ubuntu server}
+      TURN_PORT: ${TURN_PORT:-3478}
+      TURN_MIN_PORT: ${TURN_MIN_PORT:-49160}
+      TURN_MAX_PORT: ${TURN_MAX_PORT:-49200}
+      TURN_REALM: ${DOMAIN:?Set DOMAIN}
+    entrypoint: ["/bin/sh", "/config/start-turn.sh"]
+    volumes:
+      - ./deploy/start-turn.sh:/config/start-turn.sh:ro
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

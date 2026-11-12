@@ -1,0 +1,30 @@
+# Existing Snikket certificate, same hostname, separate HTTPS port.
+# Do not combine with compose.https.yaml.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTPS_PORT:-8443}:8443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set the hostname covered by the existing certificate}
+      TLS_CERT_FILE: ${TLS_CERT_FILE:?Set certificate path relative to TLS_CERT_DIR}
+      TLS_KEY_FILE: ${TLS_KEY_FILE:?Set key path relative to TLS_CERT_DIR}
+    entrypoint: ["/bin/sh", "/etc/caddy/start-existing-cert.sh"]
+    volumes:
+      - ./deploy/Caddyfile.existing-cert:/etc/caddy/Caddyfile:ro
+      - ./deploy/start-existing-cert.sh:/etc/caddy/start-existing-cert.sh:ro
+      - type: bind
+        source: ${TLS_CERT_DIR:?Set host certificate directory}
+        target: /certs
+        read_only: true
+        bind:
+          create_host_path: false
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+volumes:
+  caddy_data:
+  caddy_config:

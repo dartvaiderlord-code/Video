@@ -1,0 +1,9 @@
+{
+	auto_https disable_redirects
+	skip_install_trust
+	default_sni {$DOMAIN}
+}
+https://{$DOMAIN}:8443 {
+	tls internal
+	reverse_proxy app:3000
+}

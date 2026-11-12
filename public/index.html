@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Screenroom — смотрим вместе</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body><main>
+<header><a href="/" class="brand">◉ Screenroom</a><span>Ваш экран. Ваша компания.</span></header>
+<section class="intro"><p class="eyebrow">БЛИЖЕ, ДАЖЕ НА РАССТОЯНИИ</p><h1>Один экран.<br>Общий вечер.</h1><p>Покажите игру, включите сериал или просто побудьте вместе.<br>Прямая трансляция из браузера, без установки приложения.</p></section>
+<section class="panel">
+<div class="toolbar"><div><h2 id="title">Начать трансляцию</h2><p id="status" role="status" aria-live="polite">Создайте комнату и отправьте ссылку друзьям.</p></div><span id="count" class="badge">До 6 зрителей</span></div>
+<div id="host-options"><label>Код создания комнаты<input id="access-key" type="password" autocomplete="current-password" placeholder="Код, заданный владельцем сервера"></label><div class="settings"><label>Качество<select id="quality"><option value="1080">1080p · 30 кадров/с</option><option value="720">720p · 60 кадров/с</option><option value="1080fast">1080p · 60 кадров/с</option></select></label><label>Битрейт на зрителя<select id="bitrate"><option value="4">4 Мбит/с</option><option value="8" selected>8 Мбит/с</option><option value="12">12 Мбит/с</option></select></label></div><p class="hint">Для звука вкладки выберите вкладку браузера и включите «Поделиться аудио». Для игры выберите экран и системный звук, если браузер это предлагает.</p></div>
+<div class="actions"><button id="start">Выбрать экран и начать</button><button id="join" hidden>Присоединиться к просмотру</button><button id="stop" class="secondary" hidden>Завершить трансляцию</button></div>
+<div id="invite" hidden><label>Ссылка для друзей<div class="linkrow"><input id="link" readonly aria-label="Ссылка на комнату"><button id="copy" class="secondary">Копировать</button></div></label><p class="hint">Любой с этой ссылкой сможет смотреть. Отправляйте её только своим.</p></div>
+<div id="stage" hidden><video id="video" autoplay playsinline controls></video><button id="play" class="secondary" hidden>Включить видео и звук</button><p id="stats" class="hint"></p></div>
+</section><footer><span>WebRTC · прямая передача между устройствами</span><span>Без записи и хранения видео на сервере</span></footer>
+<p class="note">Chrome / Edge на компьютере рекомендуются для трансляции. Телефоны могут смотреть; передача экрана с мобильного браузера обычно недоступна. Защищённое DRM-видео может отображаться чёрным экраном.</p>
+</main></body></html>
