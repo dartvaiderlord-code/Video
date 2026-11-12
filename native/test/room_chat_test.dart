@@ -40,11 +40,34 @@ void main() {
           (_) async => null,
         );
     chat = RoomChat(sent.add);
+    chat.members = [
+      {'id': 'self', 'name': 'Капитан', 'voice': false},
+    ];
   });
   tearDown(() async {
     await chat.reset();
     chat.dispose();
   });
+  test(
+    'old server cannot silently discard text or start an unusable microphone',
+    () async {
+      chat.members = [];
+      expect(chat.post('message'), false);
+      await chat.toggleVoice();
+      expect(sent, isEmpty);
+      expect(calls.where((c) => c.method == 'getUserMedia'), isEmpty);
+      expect(chat.error, contains('Обновите Docker'));
+      await chat.handle({
+        'type': 'members',
+        'members': [
+          {'id': 'self', 'voice': false},
+        ],
+      });
+      expect(chat.supported, true);
+      expect(chat.error, isEmpty);
+      expect(chat.post('message'), true);
+    },
+  );
   test(
     'text/membership never request microphone; voice is explicit, mutable and released',
     () async {

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pirate_tavern/protocol.dart';
 import 'package:pirate_tavern/signaling.dart';
+import 'package:pirate_tavern/room_chat.dart';
 
 void main() {
   test(
@@ -14,6 +15,10 @@ void main() {
         '../scripts/native-test-server.mjs',
       ]);
       final host = Signaling(), bad = Signaling(), viewer = Signaling();
+      final hostChat = RoomChat(host.send), viewerChat = RoomChat(viewer.send);
+      final hostRoster = Completer<void>(),
+          viewerRoster = Completer<void>(),
+          chatReceived = Completer<void>();
       try {
         final url = await server.stdout
             .transform(utf8.decoder)
@@ -28,7 +33,16 @@ void main() {
           origin: origin,
           firstMessage: {'type': 'create', 'roomCode': 'Код команды'},
           onMessage: (msg) async {
-            if (msg['type'] == 'created') created.complete(msg);
+            if (msg['type'] == 'created') {
+              hostChat.selfId = msg['id'] as String;
+              created.complete(msg);
+            }
+            if (['members', 'chat'].contains(msg['type'])) {
+              await hostChat.handle(msg);
+            }
+            if (hostChat.members.length == 2 && !hostRoster.isCompleted) {
+              hostRoster.complete();
+            }
             if (msg['type'] == 'viewer-joined') arrival.complete(msg);
             if (msg['type'] == 'signal') hostSignal.complete(msg);
           },
@@ -57,7 +71,19 @@ void main() {
           origin: origin,
           firstMessage: invite.join('Код команды'),
           onMessage: (msg) async {
-            if (msg['type'] == 'joined') joined.complete();
+            if (msg['type'] == 'joined') {
+              viewerChat.selfId = msg['id'] as String;
+              joined.complete();
+            }
+            if (['members', 'chat'].contains(msg['type'])) {
+              await viewerChat.handle(msg);
+            }
+            if (viewerChat.members.length == 2 && !viewerRoster.isCompleted) {
+              viewerRoster.complete();
+            }
+            if (msg['type'] == 'chat' && !chatReceived.isCompleted) {
+              chatReceived.complete();
+            }
             if (msg['type'] == 'signal') offer.complete(msg);
             if (msg['type'] == 'ended') ended.complete();
           },
@@ -66,6 +92,16 @@ void main() {
           },
         );
         await joined.future.timeout(const Duration(seconds: 5));
+        await Future.wait([
+          hostRoster.future,
+          viewerRoster.future,
+        ]).timeout(const Duration(seconds: 5));
+        expect(hostChat.supported, true);
+        expect(viewerChat.supported, true);
+        expect(hostChat.post('Native room chat works'), true);
+        await chatReceived.future.timeout(const Duration(seconds: 5));
+        expect(viewerChat.messages.single.text, 'Native room chat works');
+        expect(viewerChat.messages.single.name, 'Капитан');
         final id = (await arrival.future)['id'];
         host.send({
           'type': 'signal',

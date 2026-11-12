@@ -32,19 +32,34 @@ class RoomChat extends ChangeNotifier {
   List<Map<String, dynamic>> members = [];
   List<dynamic> iceServers = [];
   String selfId = '';
+  bool get supported => members.isNotEmpty;
+  static const updateServerMessage =
+      'Сервер не поддерживает чат. Обновите Docker-контейнер приложения и создайте новую комнату.';
   String error = '';
   MediaStream? _mic;
   bool enabled = false, muted = false, busy = false;
   int _generation = 0;
 
-  void post(String text) {
+  bool post(String text) {
+    if (!supported) {
+      error = updateServerMessage;
+      notifyListeners();
+      return false;
+    }
     if (text.trim().isNotEmpty && text.trim().length <= 2000) {
       send({'type': 'chat', 'text': text.trim()});
+      return true;
     }
+    return false;
   }
 
   Future<void> toggleVoice() async {
     if (busy) return;
+    if (!supported) {
+      error = updateServerMessage;
+      notifyListeners();
+      return;
+    }
     if (enabled) {
       await leave();
       return;
@@ -137,6 +152,7 @@ class RoomChat extends ChangeNotifier {
       if (messages.length > 100) messages.removeAt(0);
       notifyListeners();
     } else if (msg['type'] == 'members') {
+      if (error == updateServerMessage) error = '';
       members = (msg['members'] as List)
           .map((m) => Map<String, dynamic>.from(m as Map))
           .toList();

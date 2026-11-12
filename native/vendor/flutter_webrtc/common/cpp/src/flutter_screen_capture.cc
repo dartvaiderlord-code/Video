@@ -624,9 +624,10 @@ void FlutterScreenCapture::GetDisplayMedia(
     auto track = base_->factory_->CreateVideoTrack(video_source, uuid.c_str());
     EncodableMap info;
     info[EncodableValue("id")] = EncodableValue(track->id().std_string());
-    info[EncodableValue("label")] = EncodableValue("DXGI screen");
+    info[EncodableValue("label")] = EncodableValue(std::string(capture->backend()) + " screen");
     info[EncodableValue("kind")] = EncodableValue("video");
     info[EncodableValue("enabled")] = EncodableValue(true);
+    info[EncodableValue("settings")] = EncodableMap{{EncodableValue("captureBackend"), EncodableValue(std::string(capture->backend()))}};
     params[EncodableValue("videoTracks")] = EncodableValue(EncodableList{EncodableValue(info)});
     stream->AddTrack(track);
     base_->local_tracks_[track->id().std_string()] = track;

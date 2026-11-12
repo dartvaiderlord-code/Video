@@ -45,6 +45,11 @@ include_directories(
 
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libyuv" "${CMAKE_CURRENT_BINARY_DIR}/pirate_yuv")
 apply_standard_settings(${PLUGIN_NAME})
+# C++/WinRT uses standard exception propagation. Flutter's default helper sets
+# _HAS_EXCEPTIONS=0; replace it rather than passing conflicting /D definitions.
+get_target_property(PIRATE_PLUGIN_DEFINITIONS ${PLUGIN_NAME} COMPILE_DEFINITIONS)
+list(REMOVE_ITEM PIRATE_PLUGIN_DEFINITIONS "_HAS_EXCEPTIONS=0")
+set_property(TARGET ${PLUGIN_NAME} PROPERTY COMPILE_DEFINITIONS "${PIRATE_PLUGIN_DEFINITIONS};_HAS_EXCEPTIONS=1")
 set_target_properties(${PLUGIN_NAME} PROPERTIES
   CXX_VISIBILITY_PRESET hidden)
 target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
@@ -62,6 +67,7 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
   mmdevapi.lib
   ole32.lib
   runtimeobject.lib
+  windowsapp.lib
   uuid.lib
   winmm.lib
   d3d11.lib
@@ -75,3 +81,20 @@ set(flutter_webrtc_bundled_libraries
   "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libwebrtc/lib/libwebrtc.dll"
   PARENT_SCOPE
 )
+
+# Explicit diagnostic target, kept out of the portable app's Release directory.
+add_executable(pirate_capture_probe EXCLUDE_FROM_ALL
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../../tool/windows_capture_probe.cpp"
+  "fast_screen_capture.cc")
+target_compile_features(pirate_capture_probe PRIVATE cxx_std_17)
+target_compile_options(pirate_capture_probe PRIVATE /EHsc)
+target_compile_definitions(pirate_capture_probe PRIVATE LIB_WEBRTC_API_DLL RTC_DESKTOP_DEVICE _HAS_EXCEPTIONS=1)
+target_include_directories(pirate_capture_probe PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libwebrtc/include")
+target_link_libraries(pirate_capture_probe PRIVATE pirate_yuv
+  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libwebrtc/lib/libwebrtc.dll.lib"
+  d3d11.lib dxgi.lib gdi32.lib runtimeobject.lib windowsapp.lib winmm.lib)
+set_target_properties(pirate_capture_probe PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/diagnostics")
+add_custom_command(TARGET pirate_capture_probe POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libwebrtc/lib/libwebrtc.dll" "$<TARGET_FILE_DIR:pirate_capture_probe>")

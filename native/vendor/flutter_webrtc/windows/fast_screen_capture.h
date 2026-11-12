@@ -20,9 +20,15 @@ class FastScreenCapture {
              libwebrtc::scoped_refptr<libwebrtc::RTCVideoSource> source,
              std::string* error);
   void Stop();
+  const char* backend() const {
+    return backend_.load() == 2   ? "WGC"
+           : backend_.load() == 1 ? "DXGI"
+                                  : "none";
+  }
 
  private:
   std::atomic<bool> running_{false};
+  std::atomic<int> backend_{0};
   std::thread thread_;
 };
 }  // namespace flutter_webrtc_plugin

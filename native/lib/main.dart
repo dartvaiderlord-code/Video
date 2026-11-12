@@ -13,6 +13,7 @@ import 'protocol.dart';
 import 'certificate_trust.dart';
 import 'certificate_dialog.dart';
 import 'session.dart';
+import 'room_chat.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -367,6 +368,11 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
         value: showChat,
         onChanged: (v) => setState(() => showChat = v),
       ),
+      if (!session.chat.supported)
+        const Text(
+          RoomChat.updateServerMessage,
+          style: TextStyle(color: Colors.orangeAccent),
+        ),
       if (showChat) ...[
         SizedBox(
           height: 180,
@@ -384,12 +390,13 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
         ),
         TextField(
           controller: chatText,
+          enabled: session.chat.supported,
           maxLength: 2000,
           decoration: InputDecoration(
             labelText: 'Сообщение команде',
             suffixIcon: IconButton(
               icon: const Icon(Icons.send),
-              onPressed: _sendChat,
+              onPressed: session.chat.supported ? _sendChat : null,
             ),
           ),
           onSubmitted: (_) => _sendChat(),
@@ -399,7 +406,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
         spacing: 8,
         children: [
           OutlinedButton.icon(
-            onPressed: session.chat.busy
+            onPressed: !session.chat.supported || session.chat.busy
                 ? null
                 : () => session.chat.toggleVoice(),
             icon: Icon(session.chat.enabled ? Icons.call_end : Icons.mic),
@@ -431,8 +438,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
     ],
   );
   void _sendChat() {
-    session.chat.post(chatText.text);
-    chatText.clear();
+    if (session.chat.post(chatText.text)) chatText.clear();
   }
 
   @override

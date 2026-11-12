@@ -480,6 +480,13 @@ class TavernSession extends ChangeNotifier {
       running = true;
       try {
         final lines = <String>[];
+        final captureBackend = _capture
+            ?.getVideoTracks()
+            .firstOrNull
+            ?.getSettings()['captureBackend'];
+        if (hosting && captureBackend != null) {
+          lines.add('Захват: $captureBackend');
+        }
         int index = 0;
         for (final entry in _peers.entries.toList()) {
           final reports = await entry.value.pc.getStats();

@@ -61,6 +61,18 @@ jobs:
             }
             exit $buildExitCode
           }
+      - name: Windows capture conflict probe
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          cmake --build build/windows/x64 --config Release --target pirate_capture_probe 2>&1 | Tee-Object -FilePath capture-probe-build.log
+          $probeExitCode = $LASTEXITCODE
+          if ($probeExitCode -ne 0) {
+            Get-Content capture-probe-build.log -Tail 30 | ForEach-Object { Write-Output "::error::$_" }
+            exit $probeExitCode
+          }
+          & ".\build\windows\x64\diagnostics\Release\pirate_capture_probe.exe"
+          exit $LASTEXITCODE
       - name: Build Android APK (test signing)
         if: matrix.target == 'android'
         run: flutter build apk --release --target-platform android-arm64,android-arm
