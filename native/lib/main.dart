@@ -10,6 +10,8 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'protocol.dart';
+import 'certificate_trust.dart';
+import 'certificate_dialog.dart';
 import 'session.dart';
 
 void main() {
@@ -67,6 +69,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
   List<DesktopCapturerSource> sources = [];
   DesktopCapturerSource? source;
   final Map<String, String> certificates = {};
+  final Map<String, String> certificatePins = {};
   bool get locked => working || session.busy || session.connected;
   @override
   void initState() {
@@ -89,6 +92,23 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
         certificates.addAll(Map<String, String>.from(jsonDecode(saved) as Map));
       } catch (_) {
         /* Ignore corrupt local preferences. */
+      }
+    }
+    final savedPins = prefs.getString('trustedCertificatePinsByOrigin');
+    if (savedPins != null) {
+      try {
+        final pins = Map<String, String>.from(jsonDecode(savedPins) as Map);
+        certificatePins.addAll(
+          Map.fromEntries(
+            pins.entries.where(
+              (e) => RegExp(
+                r'^(?:[A-F0-9]{2}:){31}[A-F0-9]{2}$',
+              ).hasMatch(e.value),
+            ),
+          ),
+        );
+      } catch (_) {
+        /* Ignore malformed local preferences. */
       }
     }
     if (mounted) setState(() {});
@@ -167,15 +187,49 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _forgetCa() async {
+  Future<CertificateAcceptance> _confirmCertificate(
+    ServerCertificate certificate,
+  ) async {
+    if (!mounted) return CertificateAcceptance.reject;
+    return confirmServerCertificate(context, certificate);
+  }
+
+  Future<void> _rememberCertificate(ServerCertificate certificate) async {
+    certificatePins[certificate.origin.origin] = certificate.fingerprint;
     try {
-      certificates.remove(_endpoint().origin);
-      await (await SharedPreferences.getInstance()).setString(
+      final prefs = await SharedPreferences.getInstance();
+      if (!await prefs.setString(
+        'trustedCertificatePinsByOrigin',
+        jsonEncode(certificatePins),
+      )) {
+        throw StateError('Не удалось записать настройки.');
+      }
+    } catch (_) {
+      _message(
+        'Сертификат запомнен только до закрытия приложения: не удалось сохранить настройки.',
+      );
+    }
+  }
+
+  Future<void> _forgetTrust() async {
+    try {
+      final origin = _endpoint().origin;
+      certificates.remove(origin);
+      certificatePins.remove(origin);
+      final prefs = await SharedPreferences.getInstance();
+      final caSaved = await prefs.setString(
         'trustedCaByOrigin',
         jsonEncode(certificates),
       );
+      final pinSaved = await prefs.setString(
+        'trustedCertificatePinsByOrigin',
+        jsonEncode(certificatePins),
+      );
+      if (!caSaved || !pinSaved) {
+        throw StateError('Не удалось полностью удалить сохранённое доверие.');
+      }
       _update();
-      _message('Дополнительное доверие удалено.');
+      _message('Доверие к CA и сертификату этого сервера удалено.');
     } catch (e) {
       _message(e.toString());
     }
@@ -223,12 +277,18 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
             keepResolution: keepResolution,
           ),
           _ca(endpoint),
+          certificatePin: certificatePins[endpoint.origin],
+          confirmCertificate: _confirmCertificate,
+          onCertificateRemembered: _rememberCertificate,
         );
       } else {
         await session.watch(
           RoomInvite.parse(invite.text),
           code.text,
           _ca(endpoint),
+          certificatePin: certificatePins[endpoint.origin],
+          confirmCertificate: _confirmCertificate,
+          onCertificateRemembered: _rememberCertificate,
         );
       }
     } catch (e) {
@@ -314,7 +374,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                       segments: const [
                         ButtonSegment(
                           value: true,
-                          label: Text('Капитан: передавать'),
+                          label: Text('Капитан'),
                           icon: Icon(Icons.screen_share),
                         ),
                         ButtonSegment(
@@ -369,13 +429,13 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                         label: const Text('Импорт root.crt для своего сервера'),
                       ),
                       TextButton(
-                        onPressed: locked ? null : _forgetCa,
-                        child: const Text('Удалить доверие к CA'),
+                        onPressed: locked ? null : _forgetTrust,
+                        child: const Text('Сбросить доверие'),
                       ),
                     ],
                   ),
                   const Text(
-                    'С обычным доверенным HTTPS-сертификатом импорт не нужен. Проверка TLS всегда включена.',
+                    'Недоверенный сертификат можно подтвердить при подключении. Импорт root.crt необязателен; сохранённое доверие можно сбросить.',
                     style: TextStyle(fontSize: 12, color: Color(0xffb7a68e)),
                   ),
                   if (hostMode) ...[

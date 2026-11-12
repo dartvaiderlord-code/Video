@@ -101,9 +101,11 @@ String certificateFingerprint(Uint8List bytes) {
     );
   }
   SecurityContext(withTrustedRoots: true).setTrustedCertificatesBytes(bytes);
-  return sha256
-      .convert(base64.decode(match[1]!.replaceAll(RegExp(r'\s'), '')))
-      .toString()
-      .toUpperCase()
-      .replaceAllMapped(RegExp(r'.{2}(?!$)'), (m) => '${m[0]}:');
+  return derFingerprint(base64.decode(match[1]!.replaceAll(RegExp(r'\s'), '')));
 }
+
+String derFingerprint(List<int> bytes) => sha256
+    .convert(bytes)
+    .toString()
+    .toUpperCase()
+    .replaceAllMapped(RegExp(r'.{2}(?!$)'), (m) => '${m[0]}:');

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'protocol.dart';
+import 'certificate_trust.dart';
 import 'signaling.dart';
 
 class _Peer {
@@ -69,8 +70,11 @@ class TavernSession extends ChangeNotifier {
     String code,
     DesktopCapturerSource source,
     CaptureProfile profile,
-    Uint8List? trustedCa,
-  ) async {
+    Uint8List? trustedCa, {
+    String? certificatePin,
+    CertificateApprover? confirmCertificate,
+    CertificateRememberer? onCertificateRemembered,
+  }) async {
     if (!Platform.isWindows) {
       throw const FormatException('Трансляция доступна в Windows-клиенте.');
     }
@@ -108,10 +112,15 @@ class TavernSession extends ChangeNotifier {
       if (capture.getAudioTracks().isEmpty) {
         warning = 'Системный звук недоступен. Передаётся только изображение.';
       }
-      await _connect(origin, trustedCa, {
-        'type': 'create',
-        'roomCode': validateRoomCode(code),
-      }, epoch);
+      await _connect(
+        origin,
+        trustedCa,
+        {'type': 'create', 'roomCode': validateRoomCode(code)},
+        epoch,
+        certificatePin: certificatePin,
+        confirmCertificate: confirmCertificate,
+        onCertificateRemembered: onCertificateRemembered,
+      );
     } catch (e) {
       if (epoch == _epoch) await stop(_failure(e));
     }
@@ -120,8 +129,11 @@ class TavernSession extends ChangeNotifier {
   Future<void> watch(
     RoomInvite invite,
     String code,
-    Uint8List? trustedCa,
-  ) async {
+    Uint8List? trustedCa, {
+    String? certificatePin,
+    CertificateApprover? confirmCertificate,
+    CertificateRememberer? onCertificateRemembered,
+  }) async {
     validateRoomCode(code);
     await stop();
     final epoch = _epoch;
@@ -132,13 +144,22 @@ class TavernSession extends ChangeNotifier {
     _changed();
     try {
       await initialize();
-      await _connect(invite.server, trustedCa, invite.join(code), epoch);
+      await _connect(
+        invite.server,
+        trustedCa,
+        invite.join(code),
+        epoch,
+        certificatePin: certificatePin,
+        confirmCertificate: confirmCertificate,
+        onCertificateRemembered: onCertificateRemembered,
+      );
     } catch (e) {
       if (epoch == _epoch) await stop(_failure(e));
     }
   }
 
   String _failure(Object e) {
+    if (e is CertificateDeclinedException) return e.toString();
     if (e is HandshakeException) {
       return 'Проверка TLS не пройдена. Проверьте адрес и срок сертификата; для своего CA импортируйте root.crt и сверьте отпечаток.';
     }
@@ -152,13 +173,29 @@ class TavernSession extends ChangeNotifier {
     Uri origin,
     Uint8List? ca,
     Map<String, dynamic> first,
-    int epoch,
-  ) async {
+    int epoch, {
+    String? certificatePin,
+    CertificateApprover? confirmCertificate,
+    CertificateRememberer? onCertificateRemembered,
+  }) async {
     final signaling = Signaling();
     _signaling = signaling;
     await signaling.connect(
       origin: origin,
       trustedCa: ca,
+      certificatePin: certificatePin,
+      confirmCertificate: confirmCertificate == null
+          ? null
+          : (certificate) async {
+              if (epoch != _epoch) return CertificateAcceptance.reject;
+              final result = await confirmCertificate(certificate);
+              return epoch == _epoch ? result : CertificateAcceptance.reject;
+            },
+      onCertificateRemembered: onCertificateRemembered == null
+          ? null
+          : (certificate) async {
+              if (epoch == _epoch) await onCertificateRemembered(certificate);
+            },
       firstMessage: first,
       onMessage: (message) async {
         if (epoch == _epoch) await _handle(message, epoch);
