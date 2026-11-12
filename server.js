@@ -1,4 +1,7 @@
 import http from 'node:http';
+import manifest from './package.json' with {type:'json'};
+
+export const SERVER_INFO = Object.freeze({version:manifest.version, protocol:2, features:['chat', 'voice']});
 import { readFile } from 'node:fs/promises';
 import { randomBytes, createHmac, createHash, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +18,11 @@ export function createApp(env = process.env) {
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self'; style-src 'self'; script-src 'self'; media-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'");
     res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Pirate-Tavern-Version', SERVER_INFO.version);
+    if (req.url?.split('?')[0] === '/api/version' && ['GET','HEAD'].includes(req.method)) {
+      res.writeHead(200, {'Content-Type':'application/json; charset=utf-8'});
+      return res.end(req.method === 'HEAD' ? undefined : JSON.stringify(SERVER_INFO));
+    }
     if (req.url === '/healthz') { res.writeHead(200, {'Content-Type': 'text/plain'}); return res.end('ok'); }
     const file = files.get(req.url?.split('?')[0]);
     if (!file || !['GET', 'HEAD'].includes(req.method)) { res.writeHead(404); return res.end(); }

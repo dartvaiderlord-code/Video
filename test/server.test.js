@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import manifest from '../package.json' with {type:'json'};
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { WebSocket } from 'ws';
@@ -98,4 +99,15 @@ test('authenticated room chat, voice roster and viewer-to-viewer voice stay with
   let voiceAfterLeave = false; b.ws.on('message', raw => { if (JSON.parse(raw).type === 'voice-signal') voiceAfterLeave = true; });
   a.send({type:'voice-signal',to:joinedB.id,data:{candidate:{candidate:'stale'}}});
   await new Promise(r => setTimeout(r, 150)); assert.equal(leaked,false); assert.equal(voiceAfterLeave,false);
+});
+
+test('deployed server exposes a no-store version and chat capabilities', async t => {
+  const {base} = await setup(t);
+  const response = await fetch(base + '/api/version');
+  const info = await response.json();
+  assert.equal(info.version,manifest.version);
+  assert.equal(info.protocol,2);
+  assert.deepEqual(info.features,['chat','voice']);
+  assert.equal(response.headers.get('x-pirate-tavern-version'), info.version);
+  assert.equal(response.headers.get('cache-control'),'no-store');
 });
