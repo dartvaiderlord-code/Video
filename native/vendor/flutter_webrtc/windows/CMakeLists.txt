@@ -82,9 +82,12 @@ set(flutter_webrtc_bundled_libraries
   PARENT_SCOPE
 )
 
+# Flutter adds this directory via a plugin symlink/junction. Resolve it before
+# walking above the package to the application's diagnostic source.
+get_filename_component(PIRATE_PLUGIN_WINDOWS_DIR "${CMAKE_CURRENT_SOURCE_DIR}" REALPATH)
 # Explicit diagnostic target, kept out of the portable app's Release directory.
 add_executable(pirate_capture_probe EXCLUDE_FROM_ALL
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../../tool/windows_capture_probe.cpp"
+  "${PIRATE_PLUGIN_WINDOWS_DIR}/../../../tool/windows_capture_probe.cpp"
   "fast_screen_capture.cc")
 target_compile_features(pirate_capture_probe PRIVATE cxx_std_17)
 target_compile_options(pirate_capture_probe PRIVATE /EHsc)
