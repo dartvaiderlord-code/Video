@@ -8,3 +8,5 @@ node_modules/
 certs/
 coverage/
 test-results/
+__pycache__/
+*.pyc

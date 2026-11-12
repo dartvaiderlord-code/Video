@@ -1,0 +1,19 @@
+name: pirate_tavern
+description: Native Windows screen sender and Android viewer for Pirate Tavern.
+publish_to: none
+version: 1.0.0+1
+environment:
+  sdk: '>=3.10.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_webrtc: 1.6.3
+  file_picker: 10.3.10
+  shared_preferences: 2.5.4
+  crypto: 3.0.7
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: 6.0.0
+flutter:
+  uses-material-design: true
