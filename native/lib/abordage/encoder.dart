@@ -12,6 +12,46 @@ const encoderLabels = <String, String>{
   'libx264': 'CPU · H.264',
 };
 const _audioChannel = MethodChannel('Pirate.Abordage.Audio');
+
+enum CaptureProcessing { directGpu, compatible }
+
+String processingLabel(CaptureProcessing processing) =>
+    processing == CaptureProcessing.directGpu
+    ? 'DXGI напрямую'
+    : 'совместимая конвертация';
+
+class EncoderAttempt {
+  const EncoderAttempt(this.encoder, this.processing);
+  final String encoder;
+  final CaptureProcessing processing;
+}
+
+List<EncoderAttempt> encoderAttempts(
+  CaptureProfile profile,
+  String source, {
+  int? sourceWidth,
+  int? sourceHeight,
+}) {
+  final candidates = profile.codec == 'auto'
+      ? ['h264_nvenc', 'h264_amf', 'h264_qsv']
+      : [profile.codec];
+  return [
+    for (final encoder in candidates) ...[
+      if (source.startsWith('dxgi:') &&
+          sourceWidth == profile.width &&
+          sourceHeight == profile.height &&
+          ['h264_nvenc', 'h264_amf'].contains(encoder))
+        EncoderAttempt(encoder, CaptureProcessing.directGpu),
+      EncoderAttempt(encoder, CaptureProcessing.compatible),
+    ],
+  ];
+}
+
+typedef EncoderProcessStarter =
+    Future<Process> Function(String executable, List<String> arguments);
+typedef DisplayInfoProvider =
+    Future<Map<String, dynamic>?> Function(String source);
+
 List<String> encoderArguments(
   CaptureProfile p,
   String source,
@@ -19,6 +59,7 @@ List<String> encoderArguments(
   int videoPort, {
   int? audioPort,
   int audioRate = 48000,
+  CaptureProcessing processing = CaptureProcessing.compatible,
 }) {
   final screen = source.startsWith('dxgi:');
   // The display index is recorded by our Windows display enumeration.
@@ -32,12 +73,17 @@ List<String> encoderArguments(
   if (!screen && !RegExp(r'^\d+$').hasMatch(source)) {
     throw const FormatException('Для Абордажа выберите экран или окно.');
   }
-  final gpu = encoder == 'h264_nvenc' || encoder == 'h264_amf';
-  final filter = screen && encoder == 'libx264'
-      ? 'ddagrab=output_idx=${output[1]}:framerate=${p.fps}:dup_frames=1:draw_mouse=1,hwdownload,format=bgra,scale=${p.width}:${p.height}:flags=fast_bilinear,format=nv12'
-      : screen
-      ? 'ddagrab=output_idx=${output[1]}:framerate=${p.fps}:dup_frames=1:draw_mouse=1,scale_d3d11=width=${p.width}:height=${p.height}:format=nv12${gpu ? '' : ',hwdownload,format=nv12'}'
-      : 'scale=${p.width}:${p.height}:flags=fast_bilinear,format=nv12';
+  final direct = processing == CaptureProcessing.directGpu;
+  if (direct && (!screen || !['h264_nvenc', 'h264_amf'].contains(encoder))) {
+    throw const FormatException(
+      'Этот кодировщик не принимает прямую D3D11-текстуру.',
+    );
+  }
+  final conversion =
+      'scale=${p.width}:${p.height}:flags=fast_bilinear,format=nv12';
+  final filter = screen
+      ? 'ddagrab=output_idx=${output[1]}:framerate=${p.fps}:dup_frames=1:draw_mouse=1${direct ? '' : ',hwdownload,format=bgra,$conversion'}'
+      : conversion;
   return [
     '-hide_banner',
     '-loglevel',
@@ -168,6 +214,32 @@ List<String> encoderArguments(
 }
 
 class AbordageEncoder {
+  AbordageEncoder({
+    String? executablePath,
+    EncoderProcessStarter? processStarter,
+    DisplayInfoProvider? displayInfoProvider,
+    this.startupWait = const Duration(seconds: 3),
+  }) : _executablePath = executablePath,
+       _processStarter = processStarter ?? _launch,
+       _displayInfoProvider = displayInfoProvider ?? _displayInfo;
+  final String? _executablePath;
+  final EncoderProcessStarter _processStarter;
+  final DisplayInfoProvider _displayInfoProvider;
+  final Duration startupWait;
+  static Future<Process> _launch(String executable, List<String> arguments) =>
+      Process.start(executable, arguments);
+  static Future<Map<String, dynamic>?> _displayInfo(String source) async {
+    try {
+      return await _audioChannel.invokeMapMethod<String, dynamic>(
+        'displayInfo',
+        {'source': source},
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String processingPath = '';
   Process? _process;
   bool _stopping = false, _audio = false;
   String selected = '', lastError = '';
@@ -182,17 +254,23 @@ class AbordageEncoder {
     required void Function(String) onFailure,
   }) async {
     final executable = File(
-      '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}ffmpeg${Platform.pathSeparator}bin${Platform.pathSeparator}ffmpeg.exe',
+      _executablePath ??
+          '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}ffmpeg${Platform.pathSeparator}bin${Platform.pathSeparator}ffmpeg.exe',
     );
     if (!executable.existsSync()) {
       throw const FileSystemException(
         'В комплекте приложения отсутствует ffmpeg/bin/ffmpeg.exe. Распакуйте весь архив.',
       );
     }
-    // Probe the selected device/codec. Auto never silently chooses software.
-    final candidates = profile.codec == 'auto'
-        ? ['h264_nvenc', 'h264_amf', 'h264_qsv']
-        : [profile.codec];
+    final display = source.startsWith('dxgi:')
+        ? await _displayInfoProvider(source)
+        : null;
+    final candidates = encoderAttempts(
+      profile,
+      source,
+      sourceWidth: display?['width'] as int?,
+      sourceHeight: display?['height'] as int?,
+    );
     int? audioPort;
     var audioRate = 48000;
     if (audioSource != null) {
@@ -212,10 +290,11 @@ class AbordageEncoder {
       }
     }
     final failures = <String>[];
-    for (final encoder in candidates) {
+    for (final attempt in candidates) {
+      final encoder = attempt.encoder;
       if (_stopping) return;
       if (!encoderLabels.containsKey(encoder) || encoder == 'auto') continue;
-      final process = await Process.start(
+      final process = await _processStarter(
         executable.path,
         encoderArguments(
           profile,
@@ -224,9 +303,11 @@ class AbordageEncoder {
           port,
           audioPort: audioPort,
           audioRate: audioRate,
+          processing: attempt.processing,
         ),
       );
       _process = process;
+      await process.stdin.close();
       if (_stopping) {
         process.kill();
         await process.exitCode;
@@ -261,11 +342,12 @@ class AbordageEncoder {
       );
       final exited = await Future.any<int?>([
         process.exitCode,
-        Future<int?>.delayed(const Duration(seconds: 3), () => null),
+        Future<int?>.delayed(startupWait, () => null),
       ]);
       if (_stopping) return;
       if (exited == null && emitted) {
         selected = encoder;
+        processingPath = processingLabel(attempt.processing);
         unawaited(
           process.exitCode.then((code) {
             if (!_stopping) {
@@ -277,16 +359,19 @@ class AbordageEncoder {
       }
       process.kill();
       await process.exitCode;
-      failures.add('$encoder: ${errors.join(' ')}');
+      failures.add(
+        '$encoder (${processingLabel(attempt.processing)}): ${errors.join(' ')}',
+      );
       for (final subscription in _subscriptions) {
         await subscription.cancel();
       }
       _subscriptions.clear();
       frames = 0;
+      encodingFps = 0;
     }
     await stop();
     throw StateError(
-      'Аппаратный кодировщик не запущен. Выберите GPU, на котором подключён экран, или явно CPU. ${failures.join('\n')}',
+      'Не удалось запустить захват и кодирование. ${failures.join('\n')}',
     );
   }
 

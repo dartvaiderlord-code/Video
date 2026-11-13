@@ -532,7 +532,7 @@ class TavernSession extends ChangeNotifier {
           'Абордаж/1 · UDP + FEC · $viewers зрителей\n'
           'Цель: ${_profile.width}×${_profile.height} · ${_profile.fps} FPS · ${_profile.mbps} Мбит/с\n'
           '${hosting ? 'Отправка' : 'Приём'}: ${mbps.toStringAsFixed(1)} Мбит/с'
-          '${hosting ? ' · кодирование ${encodedFps.toStringAsFixed(1)} FPS · ${_aboEncoder?.selected ?? '—'}' : ''}\n'
+          '${hosting ? ' · кодирование ${encodedFps.toStringAsFixed(1)} FPS · ${_aboEncoder?.selected ?? '—'} · ${_aboEncoder?.processingPath ?? ''}' : ''}\n'
           '${decode == null ? '' : 'Декодер: ${decode['size']} · ${decode['hwdec-current']} · оценка FPS ${decode['estimated-vf-fps']} · пропусков ${decode['decoder-frame-drop-count']}/${decode['frame-drop-count']}\n'}'
           'FEC восстановлено ${_transportStats['recovered'] ?? 0} · потерь ${_transportStats['lost'] ?? 0} · очередь ${_transportStats['dropped'] ?? 0} · send ${_transportStats['sendFailures'] ?? 0}';
       _changed();

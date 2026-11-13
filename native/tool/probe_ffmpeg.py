@@ -1,17 +1,41 @@
-"""Try real Windows DDAGrab -> NV12 capture, without claiming a frame-rate result."""
+"""Check compatible conversion even without a desktop; optionally capture DXGI."""
 from pathlib import Path
-import subprocess,sys
-exe=Path('build/windows/x64/runner/Release/ffmpeg/bin/ffmpeg.exe').resolve()
+import re
+import subprocess
+import sys
+
+exe = Path('build/windows/x64/runner/Release/ffmpeg/bin/ffmpeg.exe').resolve()
+
 def capture(graph):
-    return subprocess.run([str(exe),'-hide_banner','-loglevel','info','-f','lavfi','-i',graph,'-frames:v','1','-an','-c:v','libx264','-preset','ultrafast','-tune','zerolatency','-f','null','-'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding='utf-8',errors='replace',timeout=20)
+    return subprocess.run([
+        str(exe), '-hide_banner', '-loglevel', 'info', '-f', 'lavfi', '-i', graph,
+        '-frames:v', '1', '-an', '-c:v', 'libx264', '-preset', 'ultrafast',
+        '-tune', 'zerolatency', '-progress', 'pipe:1', '-f', 'null', '-',
+    ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        encoding='utf-8', errors='replace', timeout=20)
+
+def has_frame(result):
+    return result.returncode == 0 and re.search(r'frame=\s*[1-9]\d*', result.stdout)
+
+def fail(message, result):
+    details = (message + ': ' + result.stdout[-4000:]).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+    print('::error::' + details)
+    sys.exit(1)
+
+conversion = 'scale=1920:1080:flags=fast_bilinear,format=nv12'
+# Mandatory test: no physical GPU or active monitor is needed for this part.
+synthetic = capture('testsrc2=size=640x360:rate=120,format=bgra,' + conversion)
+if not has_frame(synthetic):
+    fail('Compatible BGRA/NV12 processing failed', synthetic)
+print('::notice::PASS Abordage compatible NV12 conversion and H264 encoding (one frame; no FPS claim).')
 try:
-    baseline=capture('ddagrab=output_idx=0:framerate=120:dup_frames=0,hwdownload,format=bgra')
-    if baseline.returncode:
-        print('::notice::SKIP Abordage capture probe: runner DXGI capture unavailable. '+baseline.stdout[-1500:].replace('\n',' '))
+    baseline = capture('ddagrab=output_idx=0:framerate=120:dup_frames=1,hwdownload,format=bgra')
+    if not has_frame(baseline):
+        print('::notice::SKIP real DXGI capture: runner desktop unavailable. ' + baseline.stdout[-1200:].replace('\n', ' '))
         sys.exit(0)
-    scaled=capture('ddagrab=output_idx=0:framerate=120:dup_frames=0,scale_d3d11=width=640:height=360:format=nv12,hwdownload,format=nv12')
-    if scaled.returncode:
-        print('::error::Abordage GPU scaling probe failed: '+scaled.stdout[-4000:].replace('\n',' '));sys.exit(1)
-    print('::notice::PASS Abordage: real DXGI -> D3D11 NV12 -> H264 frame. This checks startup, not HD/120 or a hardware encoder.')
+    converted = capture('ddagrab=output_idx=0:framerate=120:dup_frames=1,hwdownload,format=bgra,' + conversion)
+    if not has_frame(converted):
+        fail('Real DXGI compatible conversion failed', converted)
+    print('::notice::PASS real DXGI -> BGRA download -> NV12 -> H264 frame. Hardware encoder performance needs a physical GPU.')
 except subprocess.TimeoutExpired:
-    print('::notice::SKIP Abordage capture probe: inactive runner desktop did not deliver a frame within 20 seconds.')
+    print('::notice::SKIP real DXGI capture: inactive runner desktop timed out.')

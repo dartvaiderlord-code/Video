@@ -165,13 +165,16 @@ void main() {
       mbps: 50,
       codec: 'h264_nvenc',
     );
-    final args = encoderArguments(profile, 'dxgi:1:0', 'h264_nvenc', 44000);
+    final args = encoderArguments(
+      profile,
+      'dxgi:1:0',
+      'h264_nvenc',
+      44000,
+      processing: CaptureProcessing.directGpu,
+    );
     expect(args, contains('d3d11va=desktop:1'));
     expect(args.join(' '), contains('framerate=120:dup_frames=1'));
-    expect(
-      args.join(' '),
-      contains('scale_d3d11=width=1920:height=1080:format=nv12'),
-    );
+    expect(args.join(' '), isNot(contains('scale_d3d11')));
     expect(args, containsAllInOrder(['-g', '30', '-bf', '0']));
     expect(args, contains('ull'));
     expect(args, containsAllInOrder(['-fps_mode', 'passthrough']));
