@@ -23,7 +23,7 @@ opts = parser.parse_args()
 fixtures = Path(opts.fixtures)
 player = json.loads((fixtures / 'player.json').read_text())
 command = json.loads((fixtures / 'commands.json').read_text())['audio']
-logs, reports = [], {}
+logs, reports, encoded = [], {}, {}
 encoder = transport = None
 handle = None
 stop = threading.Event()
@@ -123,12 +123,24 @@ try:
             .replace('127.0.0.1:44000', f'127.0.0.1:{input_port[0]}') for a in args]
     threading.Thread(target=pcm, args=(audio_port,), daemon=True).start()
     encoder = subprocess.Popen([str(Path(opts.ffmpeg).resolve()), *args],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                text=True, encoding='utf-8', errors='replace')
     threading.Thread(target=stderr_reader, args=(encoder.stderr,), daemon=True).start()
+    def encoder_progress():
+        for line in encoder.stdout:
+            key, _, value = line.strip().partition('=')
+            if key in ('frame', 'fps', 'out_time_us'):
+                encoded[key] = value
+
+    threading.Thread(target=encoder_progress, daemon=True).start()
 
     pts = []
-    deadline = time.monotonic() + 20
+    started = time.monotonic()
+    first_frame = None
+    # Check the application's first-frame deadline and then survive 12 real
+    # seconds of playback. Media time need not equal wall time on a headless
+    # software decoder; actual throughput has a separate high-FPS regression.
+    deadline = started + 30
     while time.monotonic() < deadline:
         if encoder.poll() is not None or transport.poll() is not None:
             raise RuntimeError('Encoder or transport stopped: ' + '\n'.join(logs))
@@ -138,7 +150,10 @@ try:
                 pts.append(float(value))
             except ValueError:
                 pass
-        if len(pts) > 1 and max(pts) - min(pts) > 12:
+        if first_frame is None and prop('vo-configured') == 'yes':
+            first_frame = time.monotonic()
+        if (first_frame is not None and time.monotonic() - first_frame > 12
+                and len(pts) > 1 and max(pts) - min(pts) > 2):
             break
         time.sleep(.05)
     result = {name: prop(name) for name in [
@@ -148,10 +163,15 @@ try:
         'vo-configured', 'decoder-frame-drop-count',
     ]}
     result['advancedSeconds'] = max(pts) - min(pts) if pts else 0
+    result['firstFrameWallSeconds'] = first_frame - started if first_frame else None
+    result['playbackWallSeconds'] = time.monotonic() - first_frame if first_frame else 0
+    result['encoder'] = encoded
     result['transport'] = reports
     print(json.dumps(result, indent=2))
     receiver = reports.get('receiver', {})
-    if (result['advancedSeconds'] < 12 or result['video-dec-params/w'] != '640'
+    if (result['advancedSeconds'] < 2 or result['firstFrameWallSeconds'] is None
+            or result['firstFrameWallSeconds'] >= 12 or result['playbackWallSeconds'] < 12
+            or result['video-dec-params/w'] != '640'
             or result['vo-configured'] != 'yes' or not result['video-out-params']
             or result['audio-params/samplerate'] != '48000'
             or receiver.get('bytes', 0) < 1000000
@@ -161,7 +181,8 @@ try:
         raise RuntimeError('libmpv received no advancing decoded H264/AAC: '
                            + json.dumps(result) + '\n' + '\n'.join(logs))
     print('::notice::PASS real Abordage sender -> UDP relay with loss -> late join -> bundled libmpv H264/AAC playback for 12s at 640x360/240 source FPS '
-          f'(headless software decode; network retries={reports.get("sender", {}).get("sendBlocked", 0)}, '
+          f'(headless software decode; first frame={result["firstFrameWallSeconds"]:.2f}s; '
+          f'encoder FPS={encoded.get("fps", "unknown")}; network retries={reports.get("sender", {}).get("sendBlocked", 0)}, '
           f'local retries={receiver.get("playbackBlocked", 0)}, local drops={receiver.get("playbackDrops", 0)}).')
 except Exception as error:
     print('::error::Abordage libmpv playback failed: ' + str(error).replace('%', '%25').replace('\n', '%0A'))

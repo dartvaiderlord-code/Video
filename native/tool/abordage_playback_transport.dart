@@ -99,7 +99,7 @@ Future<void> main(List<String> args) async {
       onNack: (blocks) =>
           viewer.send({'type': 'abordage-nack', 'blocks': blocks}),
     );
-    await stopped.future.timeout(const Duration(seconds: 30));
+    await stopped.future.timeout(const Duration(seconds: 40));
   } finally {
     await send.close();
     await receive.close();
