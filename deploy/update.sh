@@ -23,8 +23,8 @@ for (let attempt = 0; attempt < 20; attempt++) {
     const response = await fetch("http://127.0.0.1:3000/api/version");
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const info = await response.json();
-    if (!info.features?.includes("chat") || !info.features?.includes("voice")) throw new Error("Chat/voice unavailable");
-    console.log(`Server ${info.version}: text and voice chat available. Create a new room.`);
+    if (!info.features?.includes("chat") || !info.features?.includes("voice") || !info.features?.includes("abordage-1")) throw new Error("Chat/voice/Abordage unavailable");
+    console.log(`Server ${info.version}: text and voice chat available; Abordage ready. Create a new room. Open the configured UDP media port (default 3480).`);
     process.exit(0);
   } catch (error) { last = error; await new Promise(resolve => setTimeout(resolve, 500)); }
 }

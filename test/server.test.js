@@ -107,7 +107,7 @@ test('deployed server exposes a no-store version and chat capabilities', async t
   const info = await response.json();
   assert.equal(info.version,manifest.version);
   assert.equal(info.protocol,2);
-  assert.deepEqual(info.features,['chat','voice']);
+  assert.deepEqual(info.features,['chat','voice','abordage-1']);
   assert.equal(response.headers.get('x-pirate-tavern-version'), info.version);
   assert.equal(response.headers.get('cache-control'),'no-store');
 });

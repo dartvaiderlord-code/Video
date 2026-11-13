@@ -8,6 +8,8 @@
 #include <flutter_messenger.h>
 #include <flutter_plugin_registrar.h>
 
+void RegisterAbordageAudio(flutter::PluginRegistrarWindows* registrar);
+
 const char* kChannelName = "FlutterWebRTC.Method";
 static flutter_webrtc_plugin::FlutterWebRTC* g_shared_instance = nullptr;
 
@@ -85,6 +87,7 @@ void FlutterWebRTCPluginRegisterWithRegistrar(
   // channels can check whether the engine is still running before they
   // unregister their stream handlers; see ~EventChannelProxyImpl in
   // common/cpp/src/flutter_common.cc.
+  RegisterAbordageAudio(flutter::PluginRegistrarManager::GetInstance()->GetRegistrar<flutter::PluginRegistrarWindows>(registrar));
   SetEventChannelHostMessenger(
       FlutterDesktopPluginRegistrarGetMessenger(registrar));
   flutter_webrtc_plugin::FlutterWebRTCPluginImpl::RegisterWithRegistrar(

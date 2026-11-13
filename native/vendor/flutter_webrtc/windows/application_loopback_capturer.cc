@@ -177,7 +177,7 @@ bool ApplicationLoopbackCapturer::Start(
 
   // Cache audio format for FeederThread (mix_format_ lives on this thread).
   cached_sample_rate_  = static_cast<int>(mix_format_->nSamplesPerSec);
-  cached_out_channels_ = 1;
+  cached_out_channels_ = transport_mode_ ? 2 : 1;
   // Initialise ring buffer: 500 ms of mono int16 samples.
   {
     const size_t frames_per_20ms =
@@ -499,7 +499,8 @@ void ApplicationLoopbackCapturer::CaptureThread() {
                 : left;
                 
             // Write to our stereo output buffer
-            conv[f] = static_cast<int16_t>((static_cast<int32_t>(left) + right) / 2);
+            if (out_channels == 2) { conv[2*f] = left; conv[2*f+1] = right; }
+            else { conv[f] = static_cast<int16_t>((static_cast<int32_t>(left) + right) / 2); }
           }
         }
         {
@@ -555,14 +556,14 @@ void ApplicationLoopbackCapturer::FeederThread() {
   HANDLE task = AvSetMmThreadCharacteristicsW(L"Audio", &task_index);
 
   const int    sample_rate     = cached_sample_rate_;
-  const size_t out_channels    = 1;
+  const size_t out_channels    = cached_out_channels_;
 
   // 480 samples = one 10 ms frame at 48 kHz.
   const size_t frames_per_10ms = static_cast<size_t>(sample_rate) / 100;
 
   // Jitter-buffer thresholds (all in frames).
-  const size_t target_prebuf  = 16 * frames_per_10ms;  // 160 ms startup fill
-  const size_t max_buffered   = 20 * frames_per_10ms;  // 200 ms hard cap
+  const size_t target_prebuf  = (transport_mode_ ? 2 : 16) * frames_per_10ms;  // 160 ms startup fill
+  const size_t max_buffered   = (transport_mode_ ? 4 : 20) * frames_per_10ms;  // 200 ms hard cap
 
   // Stereo ring-read buffer
   std::vector<int16_t> feed(frames_per_10ms * out_channels, int16_t{0});

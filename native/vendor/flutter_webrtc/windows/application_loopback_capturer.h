@@ -27,6 +27,8 @@ class ApplicationLoopbackCapturer : public LoopbackCapturer {
 
   // Call before Start() to isolate audio from a specific process.
   // Pass 0 (default) to capture all system audio.
+  void SetTransportMode() { transport_mode_ = true; }
+  int sample_rate() const { return cached_sample_rate_; }
   void SetTargetProcessId(DWORD pid) { target_pid_ = pid; }
 
   bool Start(scoped_refptr<RTCAudioSource> source) override;
@@ -68,6 +70,7 @@ class ApplicationLoopbackCapturer : public LoopbackCapturer {
   // 0 = capture all system audio (EXCLUDE self).
   // Non-zero = capture only that process (INCLUDE mode).
   DWORD  target_pid_           = 0;
+  bool transport_mode_ = false;
 
   typedef int16_t (*SampleExtractor)(const BYTE*);
 

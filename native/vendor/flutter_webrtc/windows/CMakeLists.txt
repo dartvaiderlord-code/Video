@@ -30,6 +30,7 @@ add_library(${PLUGIN_NAME} SHARED
   "../common/cpp/src/flutter_webrtc.cc"
   "../common/cpp/src/flutter_webrtc_base.cc"
   "application_loopback_capturer.cc"
+  "abordage_audio.cc"
   "fast_screen_capture.cc"
   "loopback_capturer_factory.cc"
   "flutter_webrtc_plugin.cc"
@@ -62,6 +63,7 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
   flutter
   flutter_wrapper_plugin
   "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libwebrtc/lib/libwebrtc.dll.lib"
+  ws2_32.lib
   avrt.lib
   ksuser.lib
   mmdevapi.lib

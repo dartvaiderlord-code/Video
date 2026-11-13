@@ -1,0 +1,20 @@
+name: abordage_crypto
+description: Native Monocypher AEAD for the Abordage screen transport.
+version: 1.0.0
+publish_to: none
+environment:
+  sdk: '>=3.10.0 <4.0.0'
+  flutter: '>=3.38.5'
+dependencies:
+  flutter:
+    sdk: flutter
+  ffi: 2.1.4
+flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true
+      windows:
+        ffiPlugin: true
+      linux:
+        ffiPlugin: true

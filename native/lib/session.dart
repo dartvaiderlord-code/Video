@@ -9,6 +9,10 @@ import 'video_quality.dart';
 import 'room_chat.dart';
 import 'certificate_trust.dart';
 import 'signaling.dart';
+import 'abordage/transport.dart';
+import 'abordage/encoder.dart';
+import 'abordage/playback.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 class _Peer {
   _Peer(this.pc);
@@ -19,6 +23,16 @@ class _Peer {
 
 class TavernSession extends ChangeNotifier {
   final renderer = RTCVideoRenderer();
+  AbordageTransport? _aboTransport;
+  AbordageEncoder? _aboEncoder;
+  AbordagePlayback? _aboPlayback;
+  VideoController? get abordageController => _aboPlayback?.controller;
+  bool _abordageRoom = false, _previewAbordage = false;
+  String _sourceAbordage = '';
+  String? _audioAbordage;
+  Map<String, dynamic> _transportStats = {};
+  int _lastMediaBytes = 0, _lastMediaMicros = 0;
+  double _mediaMbps = 0;
   late final chat = RoomChat((message) => _signaling?.send(message));
   final _peers = <String, _Peer>{};
   final _previousBytes = <String, (int, DateTime)>{};
@@ -42,7 +56,8 @@ class TavernSession extends ChangeNotifier {
   String invitation = '';
   String metrics = '';
   String warning = '';
-  int get viewers => _peers.length;
+  int get viewers =>
+      _abordageRoom ? (chat.members.length - 1).clamp(0, 800) : _peers.length;
   void _changed() {
     if (!_disposed) notifyListeners();
   }
@@ -86,7 +101,7 @@ class TavernSession extends ChangeNotifier {
     validateRoomCode(code);
     if (profile.fps > 60 && !source.id.startsWith('dxgi:')) {
       throw const FormatException(
-        'Для 120–240 FPS выберите экран с пометкой DXGI. Захват отдельного окна библиотекой ограничен 60 FPS.',
+        'Для высокой частоты выберите монитор с пометкой Абордаж. Захват отдельного окна доступен до 60 FPS.',
       );
     }
     await stop();
@@ -98,34 +113,24 @@ class TavernSession extends ChangeNotifier {
     status = 'Захватываем экран и системный звук…';
     _changed();
     try {
-      await initialize();
-      final capture = await navigator.mediaDevices.getDisplayMedia(
-        profile.constraints(source.id, audioSourceId: audioSourceId),
-      );
-      if (epoch != _epoch) {
-        for (final t in capture.getTracks()) {
-          await t.stop();
-        }
-        await capture.dispose();
-        return;
-      }
-      _capture = capture;
-      for (final track in capture.getVideoTracks()) {
-        track.onEnded = () {
-          unawaited(stop('Захват экрана завершён системой.'));
-        };
-      }
-      // The native texture renders video only; muting this local audio track would
-      // also silence the WASAPI track sent to viewers.
-      if (preview) renderer.srcObject = capture;
-      hasVideo = preview;
-      if (audioSourceId != null && capture.getAudioTracks().isEmpty) {
-        warning = 'Системный звук недоступен. Передаётся только изображение.';
-      }
+      _abordageRoom = true;
+      _sourceAbordage = source.id;
+      _audioAbordage = audioSourceId;
+      _previewAbordage = preview;
       await _connect(
         origin,
         trustedCa,
-        {'type': 'create', 'roomCode': validateRoomCode(code)},
+        {
+          'type': 'create',
+          'roomCode': validateRoomCode(code),
+          'media': {
+            'protocol': 'abordage-1',
+            'width': profile.width,
+            'height': profile.height,
+            'fps': profile.fps,
+            'mbps': profile.mbps,
+          },
+        },
         epoch,
         certificatePin: certificatePin,
         confirmCertificate: confirmCertificate,
@@ -153,11 +158,13 @@ class TavernSession extends ChangeNotifier {
     status = 'Подключаемся к капитану…';
     _changed();
     try {
-      await initialize();
       await _connect(
         invite.server,
         trustedCa,
-        invite.join(code),
+        {
+          ...invite.join(code),
+          'supports': ['abordage-1', 'webrtc'],
+        },
         epoch,
         certificatePin: certificatePin,
         confirmCertificate: confirmCertificate,
@@ -288,23 +295,48 @@ class TavernSession extends ChangeNotifier {
         _iceServers = msg['iceServers'] as List<dynamic>;
         chat.iceServers = _iceServers;
         chat.selfId = msg['id'] as String? ?? '';
+        if (msg['abordage'] is Map) {
+          await _startAbordage(
+            Map<String, dynamic>.from(msg['abordage'] as Map),
+            epoch,
+          );
+        } else {
+          await stop(
+            'Сервер не поддерживает Абордаж. Обновите Docker-контейнер.',
+          );
+          return;
+        }
+        if (epoch != _epoch || !connected) return;
         invitation = RoomInvite(
           _origin!,
           msg['room'] as String,
           msg['token'] as String,
         ).link;
-        busy = false;
-        connected = true;
-        status = 'Комната открыта. Отправьте друзьям ссылку и код.';
-        _startStats(epoch);
         _changed();
       case 'joined':
         _iceServers = msg['iceServers'] as List<dynamic>;
         chat.iceServers = _iceServers;
         chat.selfId = msg['id'] as String? ?? '';
-        await _newPeer('host', epoch);
-        _startStats(epoch);
+        if (msg['abordage'] is Map) {
+          _abordageRoom = true;
+          await _startAbordage(
+            Map<String, dynamic>.from(msg['abordage'] as Map),
+            epoch,
+          );
+        } else {
+          await initialize();
+          await _newPeer('host', epoch);
+          _startStats(epoch);
+        }
+      case 'abordage-nack':
+        if (hosting && _abordageRoom) {
+          _aboTransport?.retransmit(List<int>.from(msg['blocks'] as List));
+        }
       case 'viewer-joined':
+        if (_abordageRoom) {
+          _changed();
+          return;
+        }
         final id = msg['id'] as String;
         try {
           final peer = await _newPeer(id, epoch);
@@ -334,6 +366,10 @@ class TavernSession extends ChangeNotifier {
         }
         _changed();
       case 'viewer-left':
+        if (_abordageRoom) {
+          _changed();
+          return;
+        }
         final peer = _peers.remove(msg['id']);
         await peer?.pc.close();
         await peer?.pc.dispose();
@@ -387,6 +423,121 @@ class TavernSession extends ChangeNotifier {
             peer.candidates.add(candidate);
           }
         }
+    }
+  }
+
+  Future<void> _startAbordage(
+    Map<String, dynamic> credentials,
+    int epoch,
+  ) async {
+    try {
+      await _runAbordage(credentials, epoch);
+    } catch (e) {
+      if (epoch == _epoch) await stop(_failure(e));
+    }
+  }
+
+  Future<void> _runAbordage(Map<String, dynamic> credentials, int epoch) async {
+    void fail(String message) {
+      if (epoch == _epoch) unawaited(stop(message));
+    }
+
+    final profile = Map<String, dynamic>.from(credentials['profile'] as Map);
+    if (!hosting) {
+      _profile = CaptureProfile(
+        height: profile['height'] as int,
+        fps: profile['fps'] as int,
+        mbps: profile['mbps'] as int,
+        codec: 'H264',
+      );
+    }
+    var playbackPort = 0;
+    if (!hosting || _previewAbordage) {
+      playbackPort = await reserveLoopbackPort();
+      if (epoch != _epoch) return;
+      final playback = AbordagePlayback();
+      _aboPlayback = playback;
+      hasVideo = true;
+      _changed();
+      unawaited(
+        playback
+            .open(playbackPort, fail)
+            .then((_) async {
+              if (hosting) await playback.player.setVolume(0);
+            })
+            .catchError((Object e) {
+              fail('$e');
+            }),
+      );
+    }
+    final transport = AbordageTransport();
+    _aboTransport = transport;
+    status = 'Абордаж · устанавливаем UDP-связь…';
+    _changed();
+    final inputPort = await transport.start(
+      credentials,
+      host: _origin!.host,
+      publish: hosting,
+      playbackPort: playbackPort,
+      onStats: (stats) {
+        if (epoch == _epoch) _transportStats = stats;
+      },
+      onFailure: fail,
+      onNack: (blocks) =>
+          _signaling?.send({'type': 'abordage-nack', 'blocks': blocks}),
+    );
+    if (epoch != _epoch) return;
+    if (hosting) {
+      status = 'Абордаж · запускаем кодировщик…';
+      _changed();
+      final encoder = AbordageEncoder();
+      _aboEncoder = encoder;
+      await encoder.start(
+        profile: _profile,
+        source: _sourceAbordage,
+        port: inputPort,
+        audioSource: _audioAbordage,
+        onFailure: fail,
+      );
+    }
+    if (epoch != _epoch) return;
+    busy = false;
+    connected = true;
+    status = hosting ? 'Абордаж · комната открыта.' : 'Абордаж · вы на борту.';
+    _lastMediaMicros = (_transportStats['micros'] as int?) ?? 0;
+    _lastMediaBytes = (_transportStats['bytes'] as int?) ?? 0;
+    _stats = Timer.periodic(const Duration(seconds: 1), (_) {
+      unawaited(_abordageStats(epoch));
+    });
+    _changed();
+  }
+
+  bool _readingMediaStats = false;
+  Future<void> _abordageStats(int epoch) async {
+    if (_readingMediaStats) return;
+    _readingMediaStats = true;
+    try {
+      final bytes = (_transportStats['bytes'] as int?) ?? 0,
+          micros = (_transportStats['micros'] as int?) ?? 0;
+      if (micros > _lastMediaMicros) {
+        _mediaMbps =
+            (bytes - _lastMediaBytes) * 8 / (micros - _lastMediaMicros);
+        _lastMediaBytes = bytes;
+        _lastMediaMicros = micros;
+      }
+      final mbps = _mediaMbps, encodedFps = _aboEncoder?.encodingFps ?? 0;
+      final decode = await _aboPlayback?.stats();
+      if (epoch != _epoch) return;
+      metrics =
+          'Абордаж/1 · UDP + FEC · $viewers зрителей\n'
+          'Цель: ${_profile.width}×${_profile.height} · ${_profile.fps} FPS · ${_profile.mbps} Мбит/с\n'
+          '${hosting ? 'Отправка' : 'Приём'}: ${mbps.toStringAsFixed(1)} Мбит/с'
+          '${hosting ? ' · кодирование ${encodedFps.toStringAsFixed(1)} FPS · ${_aboEncoder?.selected ?? '—'}' : ''}\n'
+          '${decode == null ? '' : 'Декодер: ${decode['size']} · ${decode['hwdec-current']} · оценка FPS ${decode['estimated-vf-fps']} · пропусков ${decode['decoder-frame-drop-count']}/${decode['frame-drop-count']}\n'}'
+          'FEC восстановлено ${_transportStats['recovered'] ?? 0} · потерь ${_transportStats['lost'] ?? 0} · очередь ${_transportStats['dropped'] ?? 0} · send ${_transportStats['sendFailures'] ?? 0}';
+      _changed();
+    } finally {
+      _readingMediaStats = false;
     }
   }
 
@@ -547,6 +698,12 @@ class TavernSession extends ChangeNotifier {
   }
 
   Future<void> toggleAudio() async {
+    if (_aboPlayback != null) {
+      playbackMuted = !playbackMuted;
+      await _aboPlayback!.player.setVolume(playbackMuted ? 0 : 100);
+      _changed();
+      return;
+    }
     final tracks = _remote?.getAudioTracks() ?? <MediaStreamTrack>[];
     if (tracks.isEmpty) return;
     final nextMuted = !playbackMuted;
@@ -566,11 +723,20 @@ class TavernSession extends ChangeNotifier {
     _signaling = null;
     final peers = _peers.values.toList();
     _peers.clear();
+    final aboTransport = _aboTransport,
+        aboEncoder = _aboEncoder,
+        aboPlayback = _aboPlayback;
+    _aboTransport = null;
+    _aboEncoder = null;
+    _aboPlayback = null;
     final capture = _capture, remote = _remote;
     _capture = null;
     _remote = null;
     if (renderer.textureId != null) renderer.srcObject = null;
     try {
+      await releaseMedia(() => aboEncoder?.stop() ?? Future.value());
+      await releaseMedia(() => aboTransport?.close() ?? Future.value());
+      await releaseMedia(() => aboPlayback?.stop() ?? Future.value());
       await releaseMedia(() => chat.reset());
       await releaseMedia(() async {
         await signaling?.close();
@@ -598,6 +764,11 @@ class TavernSession extends ChangeNotifier {
       metrics = '';
       warning = '';
       _previousBytes.clear();
+      _abordageRoom = false;
+      _transportStats = {};
+      _lastMediaBytes = 0;
+      _lastMediaMicros = 0;
+      _mediaMbps = 0;
       if (message != null) status = message;
       _stopping = false;
       _changed();

@@ -1,7 +1,8 @@
 import http from 'node:http';
+import {AbordageRelay} from './abordage.js';
 import manifest from './package.json' with {type:'json'};
 
-export const SERVER_INFO = Object.freeze({version:manifest.version, protocol:2, features:['chat', 'voice']});
+export const SERVER_INFO = Object.freeze({version:manifest.version, protocol:2, features:['chat', 'voice', 'abordage-1']});
 import { readFile } from 'node:fs/promises';
 import { randomBytes, randomInt, createHmac, createHash, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +34,8 @@ function crewName(room) {
 
 export function createApp(env = process.env) {
   const rooms = new Map();
+  const relay = new AbordageRelay({port:Number(env.ABORDAGE_PORT || 0),publicPort:Number(env.ABORDAGE_PUBLIC_PORT || 0),host:env.ABORDAGE_HOST});
+  relay.ready.catch(error => server.emit('error',error));
   const maxViewers = Number(env.MAX_VIEWERS || 6);
   const turnUrls = (env.TURN_URLS || '').split(',').map(s => s.trim()).filter(Boolean);
   if (turnUrls.length && !env.TURN_SECRET) throw new Error('TURN_SECRET is required with TURN_URLS');
@@ -83,7 +86,8 @@ export function createApp(env = process.env) {
     ws.on('pong', () => { ws.alive = true; });
     let count = 0, since = Date.now();
     const authTimer = setTimeout(() => { if (!ws.room) ws.close(1008, 'Join timeout'); }, 15000);
-    ws.on('message', raw => {
+    ws.on('message', async raw => {
+      try {
       if (Date.now() - since > 10000) { count = 0; since = Date.now(); }
       if (++count > 300) return ws.close(1008, 'Rate limit');
       let msg;
@@ -94,13 +98,21 @@ export function createApp(env = process.env) {
           const code = typeof msg.roomCode === 'string' ? msg.roomCode.trim() : '';
           if (code.length < 4 || code.length > 64) return send(ws, {type:'error', message:'Код комнаты должен содержать от 4 до 64 символов.'});
           if (rooms.size >= 100) return send(ws, {type:'error', message:'Сервер занят. Попробуйте позже.'});
+          let media = null;
+          if (msg.media != null) {
+            const m=msg.media;
+            if (m.protocol!=='abordage-1' || !Number.isInteger(m.width) || !Number.isInteger(m.height) || m.width<320 || m.width>3840 || m.height<180 || m.height>2160 || !Number.isInteger(m.fps) || m.fps<30 || m.fps>480 || !Number.isInteger(m.mbps) || m.mbps<5 || m.mbps>200) return send(ws,{type:'error',message:'Неверный профиль Абордажа.'});
+            media={protocol:'abordage-1',width:m.width,height:m.height,fps:m.fps,mbps:m.mbps};
+          }
           const id = randomBytes(12).toString('hex'), token = randomBytes(24).toString('hex');
           ws.host = true; ws.name = 'Капитан'; ws.room = id;
           const salt = randomBytes(16).toString('hex');
           const codeHash = createHash('sha256').update(salt + code).digest();
-          rooms.set(id, {host:ws, token, salt, codeHash, attempts:0, attemptsSince:Date.now(), viewers:new Map()});
+          rooms.set(id, {host:ws, token, salt, codeHash, attempts:0, attemptsSince:Date.now(), viewers:new Map(), media});
           clearTimeout(authTimer);
-          send(ws, {type:'created', id:ws.id, room:id, token, iceServers:ice(), maxViewers});
+          const abordage = media ? await relay.register(rooms.get(id),ws) : undefined;
+          if (ws.readyState!==WebSocket.OPEN) {rooms.delete(id);relay.remove(ws);return;}
+          send(ws, {type:'created', abordage, id:ws.id, room:id, token, iceServers:ice(), maxViewers});
           roster(rooms.get(id));
         } else if (msg.type === 'join') {
           const room = rooms.get(msg.room);
@@ -113,9 +125,12 @@ export function createApp(env = process.env) {
             room.attempts++;
             return send(ws, {type:'error', message:'Неверный код комнаты.'});
           }
+          if (room.media && !msg.supports?.includes('abordage-1')) return send(ws,{type:'error',message:'Комната использует Абордаж. Откройте её в новом Windows или Android приложении.'});
           if (room.viewers.size >= maxViewers) return send(ws, {type:'error', message:'Комната заполнена.'});
           ws.room = msg.room; ws.name = crewName(room); room.viewers.set(ws.id, ws); clearTimeout(authTimer);
-          send(ws, {type:'joined', id:ws.id, iceServers:ice()});
+          const abordage = room.media ? await relay.register(room,ws) : undefined;
+          if (ws.readyState!==WebSocket.OPEN) {room.viewers.delete(ws.id);relay.remove(ws);return;}
+          send(ws, {type:'joined', abordage, id:ws.id, iceServers:ice()});
           send(room.host, {type:'viewer-joined', id:ws.id});
           roster(room);
         }
@@ -130,6 +145,9 @@ export function createApp(env = process.env) {
         ws.lastChat = Date.now();
         for (const p of members(room)) send(p, {type:'chat', from:ws.id, name:ws.name, text, at:Date.now()});
       }
+      if (msg.type === 'abordage-nack' && !ws.host && room.media && Array.isArray(msg.blocks) && msg.blocks.length<=4 && msg.blocks.every(n=>Number.isInteger(n)&&n>0&&n<=0xffffffff)) {
+        send(room.host,{type:'abordage-nack',blocks:msg.blocks});
+      }
       if (msg.type === 'voice-state' && typeof msg.enabled === 'boolean') {
         ws.voice = msg.enabled; roster(room);
       }
@@ -141,9 +159,14 @@ export function createApp(env = process.env) {
         const target = ws.host ? room.viewers.get(msg.to) : room.host;
         if (target) send(target, {type:'signal', from:ws.id, data:msg.data});
       }
+      } catch {
+        send(ws,{type:'error',message:'Не удалось подготовить медиасоединение.'});
+        ws.close(1011,'Media setup failed');
+      }
     });
     ws.on('close', () => {
       clearTimeout(authTimer);
+      relay.remove(ws);
       const room = rooms.get(ws.room); if (!room) return;
       if (ws.host) {
         rooms.delete(ws.room);
@@ -155,15 +178,16 @@ export function createApp(env = process.env) {
     for (const ws of wss.clients) { if (!ws.alive) ws.terminate(); else { ws.alive = false; ws.ping(); } }
   }, 15000);
   heartbeat.unref();
-  return {server, close: async () => {
+  return {server, relay, ready:relay.ready, close: async () => {
     clearInterval(heartbeat);
+    await relay.close();
     for (const ws of wss.clients) ws.terminate();
     await new Promise(resolve => wss.close(resolve));
     await new Promise(resolve => server.close(resolve));
   }};
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const app = createApp();
+  const app = createApp({...process.env,ABORDAGE_PORT:process.env.ABORDAGE_PORT || '3480'});
   app.server.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => console.log('Пиратский трактир — порт', process.env.PORT || 3000));
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => app.close().then(() => process.exit(0)));
 }

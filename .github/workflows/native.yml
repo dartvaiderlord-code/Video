@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['native/**', '.github/workflows/native.yml']
+    paths: ['native/**', 'server.js', 'abordage.js', 'scripts/abordage*', '.github/workflows/native.yml']
 concurrency:
   group: native-${{ github.ref }}
   cancel-in-progress: true
@@ -47,6 +47,18 @@ jobs:
       - run: python tool/bootstrap.py
       - run: flutter pub get --enforce-lockfile
       - run: flutter analyze
+      - name: Build native AEAD for tests (Linux)
+        if: matrix.target == 'android'
+        run: |
+          cc -shared -fPIC -O3 packages/abordage_crypto/src/monocypher.c packages/abordage_crypto/src/abordage_crypto.c -o "$RUNNER_TEMP/libabordage_crypto.so"
+          echo "ABORDAGE_CRYPTO_LIBRARY=$RUNNER_TEMP/libabordage_crypto.so" >> "$GITHUB_ENV"
+      - name: Build native AEAD for tests (Windows)
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          cmake -S packages/abordage_crypto/src -B build/crypto-test -A x64
+          cmake --build build/crypto-test --config Release
+          "ABORDAGE_CRYPTO_LIBRARY=$((Resolve-Path 'build/crypto-test/Release/abordage_crypto.dll').Path)" | Out-File -FilePath $env:GITHUB_ENV -Append
       - run: flutter test
       - name: Build Windows portable app
         if: matrix.target == 'windows'
@@ -60,6 +72,21 @@ jobs:
             Write-Output "::error::$message"
             exit $buildExitCode
           }
+      - name: Bundle pinned Abordage encoder and licenses
+        if: matrix.target == 'windows'
+        run: python tool/bundle_ffmpeg.py
+      - name: Verify Abordage FFmpeg features
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $exe = '.\build\windows\x64\runner\Release\ffmpeg\bin\ffmpeg.exe'
+          $filters = (& $exe -hide_banner -filters 2>&1) -join "`n"
+          $encoders = (& $exe -hide_banner -encoders 2>&1) -join "`n"
+          foreach ($name in @('ddagrab','scale_d3d11')) { if ($filters -notmatch $name) { throw "Missing capture filter $name" } }
+          foreach ($name in @('h264_nvenc','h264_amf','h264_qsv','libx264')) { if ($encoders -notmatch $name) { throw "Missing encoder $name" } }
+      - name: Actual Abordage DXGI and GPU scaling probe
+        if: matrix.target == 'windows'
+        run: python tool/probe_ffmpeg.py
       - name: Windows capture conflict probe
         if: matrix.target == 'windows'
         shell: pwsh
@@ -103,3 +130,27 @@ jobs:
         with:
           name: Native-WebRTC-Regression
           path: ${{ runner.temp }}/pirate-rtc/*.log
+
+  abordage-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.5'
+          cache: true
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg build-essential python3
+      - run: npm ci && npm test
+      - run: flutter pub get --enforce-lockfile
+        working-directory: native
+      - name: Actual encoded transport at 480 and 240 FPS with loss and reordering
+        run: sh native/tool/test_abordage.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Abordage-Regression
+          path: native/build/abordage-benchmark/*.log

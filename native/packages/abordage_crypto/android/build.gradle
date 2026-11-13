@@ -1,0 +1,13 @@
+group = 'ru.piratetraktir.abordage_crypto'
+version = '1.0'
+buildscript {
+    repositories { google(); mavenCentral() }
+    dependencies { classpath 'com.android.tools.build:gradle:8.9.1' }
+}
+apply plugin: 'com.android.library'
+android {
+    namespace 'ru.piratetraktir.abordage_crypto'
+    compileSdk 36
+    defaultConfig { minSdk 24; externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static', '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON' } } }
+    externalNativeBuild { cmake { path '../src/CMakeLists.txt' } }
+}

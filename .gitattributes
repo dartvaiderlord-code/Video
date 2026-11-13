@@ -1,2 +1,3 @@
 # Retain upstream source formatting and keep dependency code out of language stats.
 native/vendor/** linguist-vendored -whitespace
+native/packages/abordage_crypto/src/monocypher.* linguist-vendored -whitespace

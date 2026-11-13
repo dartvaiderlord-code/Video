@@ -25,10 +25,11 @@ if ! is_ipv4 "$public_ip"; then
 fi
 https_port=${HTTPS_PORT:-8443}
 app_port=${APP_PORT:-3100}
+abordage_port=${ABORDAGE_PORT:-3480}
 turn_port=${TURN_PORT:-3479}
 turn_min=${TURN_MIN_PORT:-40000}
 turn_max=${TURN_MAX_PORT:-40060}
-for port in "$https_port" "$app_port" "$turn_port" "$turn_min" "$turn_max"; do
+for port in "$https_port" "$app_port" "$turn_port" "$abordage_port" "$turn_min" "$turn_max"; do
     case "$port" in ''|0*|*[!0-9]*) echo 'Ports must be integers from 1 to 65535.' >&2; exit 1;; esac
     if [ "${#port}" -gt 5 ] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
         echo 'Ports must be integers from 1 to 65535.' >&2; exit 1
@@ -39,6 +40,9 @@ if [ "$turn_min" -gt "$turn_max" ] || [ "$https_port" -eq "$app_port" ] || [ "$h
 fi
 if [ "$turn_port" -ge "$turn_min" ] && [ "$turn_port" -le "$turn_max" ]; then
     echo 'TURN listening port must be outside the relay range.' >&2; exit 1
+fi
+if [ "$abordage_port" -eq "$turn_port" ] || { [ "$abordage_port" -ge "$turn_min" ] && [ "$abordage_port" -le "$turn_max" ]; }; then
+    echo 'Abordage UDP port must be outside TURN ports.' >&2; exit 1
 fi
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 env_file=${SCREENROOM_ENV_FILE:-$project_dir/.env}
@@ -54,6 +58,7 @@ DOMAIN=$host
 PUBLIC_ORIGIN=https://$host:$https_port
 HTTPS_PORT=$https_port
 APP_PORT=$app_port
+ABORDAGE_PORT=$abordage_port
 MAX_VIEWERS=6
 TURN_PUBLIC_IP=$public_ip
 TURN_PORT=$turn_port

@@ -15,6 +15,8 @@ import 'certificate_dialog.dart';
 import 'session.dart';
 import 'room_chat.dart';
 import 'pirate_masthead.dart';
+import 'abordage/encoder.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -65,8 +67,8 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
       widget.initialHostMode ??
       (defaultTargetPlatform == TargetPlatform.windows);
   bool working = false;
-  int height = 1080, fps = 120, bitrate = 35;
-  String codec = 'VP8';
+  int height = 1080, fps = 120, bitrate = 50;
+  String codec = 'auto';
   bool keepResolution = true, fullQuality = true, preview = false;
   String? audioSourceId = '0';
   final chatText = TextEditingController();
@@ -343,12 +345,17 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
     child: DropdownButtonFormField<T>(
       key: ValueKey('$label:${values.join(',')}'),
       initialValue: value,
+      isExpanded: true,
       decoration: InputDecoration(labelText: label),
       items: values
           .map(
             (v) => DropdownMenuItem(
               value: v,
-              child: Text(format?.call(v) ?? '$v'),
+              child: Text(
+                format?.call(v) ?? '$v',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           )
           .toList(),
@@ -638,18 +645,17 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                           1440,
                           2160,
                         ], (v) => height = v),
-                        _choice<int>(
-                          'Частота, FPS',
-                          fps,
-                          [30, 60, 120, 144, 165, 240],
-                          (v) {
-                            fps = v;
-                            if (fps > 60 && codec == 'H264') {
-                              codec = 'VP8';
-                            }
-                          },
-                        ),
-                        _choice<int>('Мбит/с на зрителя', bitrate, [
+                        _choice<int>('Частота, FPS', fps, [
+                          30,
+                          60,
+                          120,
+                          144,
+                          165,
+                          240,
+                          360,
+                          480,
+                        ], (v) => fps = v),
+                        _choice<int>('Мбит/с потока', bitrate, [
                           8,
                           12,
                           20,
@@ -660,11 +666,13 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                           150,
                           200,
                         ], (v) => bitrate = v),
-                        _choice<String>('Предпочтение кодека', codec, [
-                          'VP8',
-                          'VP9',
-                          if (fps <= 60) 'H264',
-                        ], (v) => codec = v),
+                        _choice<String>(
+                          'Кодировщик',
+                          codec,
+                          encoderLabels.keys.toList(),
+                          (v) => codec = v,
+                          format: (v) => encoderLabels[v]!,
+                        ),
                       ],
                     ),
                     ExpansionTile(
@@ -681,23 +689,6 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                               ? null
                               : (v) => setState(() => preview = v),
                         ),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Сохранять разрешение и FPS'),
-                          value: fullQuality,
-                          onChanged: locked
-                              ? null
-                              : (v) => setState(() => fullQuality = v),
-                        ),
-                        if (!fullQuality)
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Приоритет чёткости'),
-                            value: keepResolution,
-                            onChanged: locked
-                                ? null
-                                : (v) => setState(() => keepResolution = v),
-                          ),
                       ],
                     ),
                   ],
@@ -756,12 +747,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                       aspectRatio: 16 / 9,
                       child: ColoredBox(
                         color: Colors.black,
-                        child: RTCVideoView(
-                          session.renderer,
-                          objectFit: RTCVideoViewObjectFit
-                              .RTCVideoViewObjectFitContain,
-                          mirror: false,
-                        ),
+                        child: _StreamVideo(session: session),
                       ),
                     ),
                     if (!hostMode)
@@ -772,8 +758,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                               await Navigator.push(
                                 context,
                                 MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      _Fullscreen(renderer: session.renderer),
+                                  builder: (_) => _Fullscreen(session: session),
                                 ),
                               );
                             },
@@ -828,8 +813,8 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
 }
 
 class _Fullscreen extends StatefulWidget {
-  const _Fullscreen({required this.renderer});
-  final RTCVideoRenderer renderer;
+  const _Fullscreen({required this.session});
+  final TavernSession session;
   @override
   State<_Fullscreen> createState() => _FullscreenState();
 }
@@ -854,12 +839,7 @@ class _FullscreenState extends State<_Fullscreen> {
     backgroundColor: Colors.black,
     body: Stack(
       children: [
-        Positioned.fill(
-          child: RTCVideoView(
-            widget.renderer,
-            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
-          ),
-        ),
+        Positioned.fill(child: _StreamVideo(session: widget.session)),
         Positioned(
           top: 24,
           left: 12,
@@ -871,4 +851,25 @@ class _FullscreenState extends State<_Fullscreen> {
       ],
     ),
   );
+}
+
+class _StreamVideo extends StatelessWidget {
+  const _StreamVideo({required this.session});
+  final TavernSession session;
+  @override
+  Widget build(BuildContext context) {
+    final controller = session.abordageController;
+    if (controller != null) {
+      return Video(
+        controller: controller,
+        controls: NoVideoControls,
+        fit: BoxFit.contain,
+      );
+    }
+    return RTCVideoView(
+      session.renderer,
+      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+      mirror: false,
+    );
+  }
 }

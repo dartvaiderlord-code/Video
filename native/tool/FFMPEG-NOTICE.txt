@@ -1,0 +1,15 @@
+Abordage uses FFmpeg as a separate executable, not a linked library.
+This distribution includes an unmodified GPL FFmpeg build from FFmpeg-Builds.
+Please read the upstream COPYING/LICENSE files included in this directory.
+Exact archive URL, SHA-256 and build provenance: build-provenance.json.
+FFmpeg source revision: https://github.com/FFmpeg/FFmpeg/tree/986bab2b47
+Build scripts/dependency source revisions:
+https://github.com/FFmpeg-Builds/FFmpeg-Builds/tree/autobuild-2026-11-12-15-40
+Reproduce the exact binary with those build scripts and dependency revisions.
+The source and corresponding build files are available from those locations.
+A copy of FFmpeg sources may also be obtained with git clone followed by
+  git checkout 986bab2b47
+No modifications have been made to the FFmpeg binary in this distribution.
+FFmpeg is distributed without warranty. GPU encoding also needs the respective
+vendor driver. The transport itself does not depend on FFmpeg's network stack:
+only local loopback UDP carries MPEG-TS to/from Abordage's encrypted transport.

@@ -5,8 +5,12 @@ services:
     init: true
     ports:
       - "127.0.0.1:${APP_PORT:-3100}:3000"
+      - "${ABORDAGE_PORT:-3480}:3480/udp"
     environment:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN in .env}
+      ABORDAGE_PORT: 3480
+      ABORDAGE_PUBLIC_PORT: ${ABORDAGE_PORT:-3480}
+      ABORDAGE_HOST: ${ABORDAGE_HOST:-}
       MAX_VIEWERS: ${MAX_VIEWERS:-6}
       TURN_URLS: ${TURN_URLS:-}
       TURN_SECRET: ${TURN_SECRET:-}
