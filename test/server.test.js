@@ -111,3 +111,26 @@ test('deployed server exposes a no-store version and chat capabilities', async t
   assert.equal(response.headers.get('x-pirate-tavern-version'), info.version);
   assert.equal(response.headers.get('cache-control'),'no-store');
 });
+
+test('pirate nicknames are unique, stable and shared by chat and voice roster', {timeout:5000}, async t => {
+  const {client} = await setup(t);
+  const host = await client();host.send({type:'create',roomCode:'CREW'});const room=await host.next();
+  const viewers=[];
+  for(let i=0;i<6;i++) {
+    const peer=await client();peer.send({type:'join',room:room.room,token:room.token,roomCode:'CREW'});
+    const joined=await peer.next(); viewers.push({...peer,id:joined.id});
+  }
+  let roster;
+  do {roster=await viewers[0].next('members');}while(roster.members.length<7);
+  const names=roster.members.filter(m=>m.id!==room.id).map(m=>m.name);
+  assert.equal(new Set(names).size,6);
+  for(const name of names) assert.match(name,/^[А-ЯЁа-яё]+ «[А-ЯЁа-яё ]+»$/u);
+  const chosen=roster.members.find(m=>m.id===viewers[1].id).name;
+  viewers[1].send({type:'chat',text:'Ром на палубу!',name:'spoofed',from:'spoofed'});
+  const chat=await viewers[0].next('chat');
+  assert.equal(chat.name,chosen);assert.equal(chat.from,viewers[1].id);
+  viewers[1].send({type:'voice-state',enabled:true});
+  do {roster=await viewers[0].next('members');}while(!roster.members.find(m=>m.id===viewers[1].id).voice);
+  assert.equal(roster.members.find(m=>m.id===viewers[1].id).name,chosen);
+  assert.equal(roster.members.find(m=>m.id===room.id).name,'Капитан');
+});

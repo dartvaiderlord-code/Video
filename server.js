@@ -3,9 +3,33 @@ import manifest from './package.json' with {type:'json'};
 
 export const SERVER_INFO = Object.freeze({version:manifest.version, protocol:2, features:['chat', 'voice']});
 import { readFile } from 'node:fs/promises';
-import { randomBytes, createHmac, createHash, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomInt, createHmac, createHash, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
+
+// More names than the 800-connection server limit: active crewmates are unique.
+const pirateFirstNames = [
+  'Джек', 'Билли', 'Сэм', 'Мэри', 'Том', 'Энн', 'Педро', 'Гарри',
+  'Жак', 'Лиззи', 'Морган', 'Гектор', 'Флинт', 'Бонни', 'Чарли', 'Иван',
+  'Фрэнсис', 'Хью', 'Роджер', 'Диего', 'Грейс', 'Джеймс', 'Леон', 'Лукас',
+  'Фрэнк', 'Клод', 'Эдвард', 'Ник', 'Альваро', 'Пьер', 'Патрик', 'Барт',
+];
+const pirateNicknames = [
+  'Ромовый Ус', 'Кривой Компас', 'Пустая Бочка', 'Гроза Камбуза',
+  'Дырявый Парус', 'Три Глотка', 'Чёрный Порох', 'Последний Сухарь',
+  'Гроза Сельди', 'Соль За Ухом', 'Попутный Ветер', 'Звонкая Монета',
+  'Тихий Бунт', 'Счастливый Крюк', 'Хитрый Краб', 'Верный Кортик',
+  'Двойное Дно', 'Сухопутный Ужас', 'Семь Морей', 'Спящий Штурман',
+  'Потерянный Карман', 'Сбитый Курс', 'Медный Дублон', 'Острый Язык',
+  'Пропавший Обед', 'Золотой Зуб', 'Карманный Шторм', 'Непотопляемый Тост',
+  'Сытый Кракен', 'Тайный Запас', 'Капитанский Сквозняк', 'Шторм В Кружке',
+];
+const pirateNames = pirateFirstNames.flatMap(first => pirateNicknames.map(nick => `${first} «${nick}»`));
+function crewName(room) {
+  const used = new Set([...room.viewers.values()].map(peer => peer.name));
+  const available = pirateNames.filter(name => !used.has(name));
+  return available[randomInt(available.length)];
+}
 
 export function createApp(env = process.env) {
   const rooms = new Map();
@@ -42,7 +66,7 @@ export function createApp(env = process.env) {
   const send = (ws, msg) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); };
   const members = room => [room.host, ...room.viewers.values()];
   const roster = room => {
-    const msg = {type:'members', members:members(room).map(p => ({id:p.id, name:p.host ? 'Капитан' : `Матрос ${p.id.slice(0, 4)}`, voice:!!p.voice}))};
+    const msg = {type:'members', members:members(room).map(p => ({id:p.id, name:p.name, voice:!!p.voice}))};
     for (const p of members(room)) send(p, msg);
   };
   const ice = () => {
@@ -71,7 +95,7 @@ export function createApp(env = process.env) {
           if (code.length < 4 || code.length > 64) return send(ws, {type:'error', message:'Код комнаты должен содержать от 4 до 64 символов.'});
           if (rooms.size >= 100) return send(ws, {type:'error', message:'Сервер занят. Попробуйте позже.'});
           const id = randomBytes(12).toString('hex'), token = randomBytes(24).toString('hex');
-          ws.host = true; ws.room = id;
+          ws.host = true; ws.name = 'Капитан'; ws.room = id;
           const salt = randomBytes(16).toString('hex');
           const codeHash = createHash('sha256').update(salt + code).digest();
           rooms.set(id, {host:ws, token, salt, codeHash, attempts:0, attemptsSince:Date.now(), viewers:new Map()});
@@ -90,7 +114,7 @@ export function createApp(env = process.env) {
             return send(ws, {type:'error', message:'Неверный код комнаты.'});
           }
           if (room.viewers.size >= maxViewers) return send(ws, {type:'error', message:'Комната заполнена.'});
-          ws.room = msg.room; room.viewers.set(ws.id, ws); clearTimeout(authTimer);
+          ws.room = msg.room; ws.name = crewName(room); room.viewers.set(ws.id, ws); clearTimeout(authTimer);
           send(ws, {type:'joined', id:ws.id, iceServers:ice()});
           send(room.host, {type:'viewer-joined', id:ws.id});
           roster(room);
@@ -104,7 +128,7 @@ export function createApp(env = process.env) {
         if (!text || text.length > 2000) return;
         if (Date.now() - (ws.lastChat || 0) < 300) return;
         ws.lastChat = Date.now();
-        for (const p of members(room)) send(p, {type:'chat', from:ws.id, name:ws.host ? 'Капитан' : `Матрос ${ws.id.slice(0, 4)}`, text, at:Date.now()});
+        for (const p of members(room)) send(p, {type:'chat', from:ws.id, name:ws.name, text, at:Date.now()});
       }
       if (msg.type === 'voice-state' && typeof msg.enabled === 'boolean') {
         ws.voice = msg.enabled; roster(room);

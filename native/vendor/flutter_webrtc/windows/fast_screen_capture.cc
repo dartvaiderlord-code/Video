@@ -72,7 +72,7 @@ std::vector<std::pair<std::string, std::string>> FastScreenCapture::Sources() {
       if (SUCCEEDED(output->GetDesc(&desc)) && desc.AttachedToDesktop) {
         sources.emplace_back(
             "dxgi:" + std::to_string(a) + ":" + std::to_string(o),
-            Utf8(desc.DeviceName) + " · DXGI/WGC 120–240 FPS");
+            Utf8(desc.DeviceName) + " · DXGI/WGC");
       }
     }
   }

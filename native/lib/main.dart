@@ -14,6 +14,7 @@ import 'certificate_trust.dart';
 import 'certificate_dialog.dart';
 import 'session.dart';
 import 'room_chat.dart';
+import 'pirate_masthead.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -359,6 +360,36 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
     ),
   );
 
+  Widget _sessionStatus() {
+    if (!session.busy &&
+        !session.connected &&
+        session.status == 'Добро пожаловать на борт.' &&
+        session.warning.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        children: [
+          const Icon(Icons.anchor, color: gold, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: SelectableText(
+              session.status,
+              style: const TextStyle(color: gold),
+            ),
+          ),
+          if (session.warning.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.info_outline, color: Colors.orangeAccent),
+              tooltip: 'Подробности подключения',
+              onPressed: () => _message(session.warning),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _chatPanel() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
@@ -431,10 +462,6 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
           session.chat.error,
           style: const TextStyle(color: Colors.orangeAccent),
         ),
-      const Text(
-        'Голосовой чат необязателен. Микрофон включается только после нажатия кнопки. Для избежания эха используйте наушники.',
-        style: TextStyle(fontSize: 12, color: Color(0xffb7a68e)),
-      ),
     ],
   );
   void _sendChat() {
@@ -457,18 +484,8 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text(
-                    'ОДИН ЭКРАН. ВСЯ КОМАНДА.',
-                    style: TextStyle(color: gold, letterSpacing: 2),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    (defaultTargetPlatform == TargetPlatform.windows)
-                        ? 'Windows · экран и системный звук'
-                        : 'Android · нативный просмотр',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 20),
+                  PirateMasthead(captain: hostMode),
+                  _sessionStatus(),
                   if (defaultTargetPlatform == TargetPlatform.windows) ...[
                     SegmentedButton<bool>(
                       segments: const [
@@ -515,28 +532,33 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                       labelText: hostMode
                           ? 'Придумайте код комнаты'
                           : 'Код от капитана',
-                      helperText:
-                          '4–64 символа. Код не сохраняется на устройстве.',
+                      counterText: '',
                     ),
                   ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                  ExpansionTile(
+                    key: const PageStorageKey('certificate-settings'),
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('Сертификат сервера'),
+                    leading: const Icon(Icons.verified_user_outlined),
                     children: [
-                      OutlinedButton.icon(
-                        onPressed: locked ? null : _importCa,
-                        icon: const Icon(Icons.verified_user_outlined),
-                        label: const Text('Импорт root.crt для своего сервера'),
-                      ),
-                      TextButton(
-                        onPressed: locked ? null : _forgetTrust,
-                        child: const Text('Сбросить доверие'),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: locked ? null : _importCa,
+                            icon: const Icon(Icons.verified_user_outlined),
+                            label: const Text(
+                              'Импорт root.crt для своего сервера',
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: locked ? null : _forgetTrust,
+                            child: const Text('Сбросить доверие'),
+                          ),
+                        ],
                       ),
                     ],
-                  ),
-                  const Text(
-                    'Недоверенный сертификат можно подтвердить при подключении. Импорт root.crt необязателен; сохранённое доверие можно сбросить.',
-                    style: TextStyle(fontSize: 12, color: Color(0xffb7a68e)),
                   ),
                   if (hostMode) ...[
                     const SizedBox(height: 20),
@@ -566,8 +588,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                             ? null
                             : (s) => setState(() => source = s),
                         decoration: const InputDecoration(
-                          labelText:
-                              'Источник трансляции · для 120+ FPS выбирайте DXGI',
+                          labelText: 'Источник трансляции',
                         ),
                       ),
                     ],
@@ -605,16 +626,6 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                           : (v) => setState(
                               () => audioSourceId = v == 'none' ? null : v,
                             ),
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.only(top: 8),
-                      child: Text(
-                        'Звук выбранного приложения и его дочерних процессов — независимо от захватываемого экрана. Windows 11 / Server 2022 (build 20348+). Выбор одного приложения.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xffb7a68e),
-                        ),
-                      ),
                     ),
                     const SizedBox(height: 16),
                     Wrap(
@@ -656,43 +667,38 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                         ], (v) => codec = v),
                       ],
                     ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Предпросмотр у капитана'),
-                      subtitle: const Text(
-                        'Выключен по умолчанию, чтобы оставить больше ресурсов для передачи видео.',
-                      ),
-                      value: preview,
-                      onChanged: locked
-                          ? null
-                          : (v) => setState(() => preview = v),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Сохранять разрешение и FPS'),
-                      subtitle: const Text(
-                        'Высокий стартовый битрейт. Отключить автоматическое уменьшение кадра и FPS кодировщиком. Требует достаточного канала и мощности устройств.',
-                      ),
-                      value: fullQuality,
-                      onChanged: locked
-                          ? null
-                          : (v) => setState(() => fullQuality = v),
-                    ),
-                    if (!fullQuality)
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Приоритет чёткости'),
-                        subtitle: const Text(
-                          'Включён: сохранять разрешение. Выключен: сохранять FPS при нехватке канала.',
+                    ExpansionTile(
+                      key: const PageStorageKey('capture-settings'),
+                      tilePadding: EdgeInsets.zero,
+                      title: const Text('Параметры трансляции'),
+                      leading: const Icon(Icons.tune),
+                      children: [
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Предпросмотр у капитана'),
+                          value: preview,
+                          onChanged: locked
+                              ? null
+                              : (v) => setState(() => preview = v),
                         ),
-                        value: keepResolution,
-                        onChanged: locked
-                            ? null
-                            : (v) => setState(() => keepResolution = v),
-                      ),
-                    const Text(
-                      'Для 120+ FPS используются VP8/VP9: OpenH264 ограничивает настройку кодировщика 60 FPS. FPS и битрейт — цели, не обещание. Аппаратный кодек используется, если его предоставляет WebRTC/драйвер. Каждый зритель расходует исходящий канал отдельно.',
-                      style: TextStyle(fontSize: 12, color: Color(0xffb7a68e)),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Сохранять разрешение и FPS'),
+                          value: fullQuality,
+                          onChanged: locked
+                              ? null
+                              : (v) => setState(() => fullQuality = v),
+                        ),
+                        if (!fullQuality)
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Приоритет чёткости'),
+                            value: keepResolution,
+                            onChanged: locked
+                                ? null
+                                : (v) => setState(() => keepResolution = v),
+                          ),
+                      ],
                     ),
                   ],
                   if (session.connected) _chatPanel(),
@@ -708,7 +714,7 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                         ),
                         label: Text(
                           hostMode
-                              ? 'Поднять флаг и передавать'
+                              ? 'Поднять флаг и отчалить'
                               : 'Подняться на борт',
                         ),
                       ),
@@ -725,16 +731,6 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                         ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  Text(session.status, style: const TextStyle(color: gold)),
-                  if (session.warning.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        session.warning,
-                        style: const TextStyle(color: Colors.orangeAccent),
-                      ),
-                    ),
                   if (session.invitation.isNotEmpty)
                     Card(
                       child: Padding(
@@ -749,9 +745,6 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                               onPressed: () => _copy(session.invitation),
                               icon: const Icon(Icons.copy),
                               label: const Text('Копировать ссылку'),
-                            ),
-                            const Text(
-                              'Передайте друзьям также придуманный код комнаты.',
                             ),
                           ],
                         ),
@@ -806,21 +799,24 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                       ),
                   ],
                   if (session.metrics.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: SelectableText(
-                        session.metrics,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
+                    ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      title: const Text('Статистика трансляции'),
+                      leading: const Icon(Icons.speed),
+                      children: [
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: SelectableText(
+                            session.metrics,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   const SizedBox(height: 24),
-                  const Text(
-                    'Без записи на сервере · комнаты совместимы с браузером',
-                    style: TextStyle(color: Color(0xffb7a68e)),
-                  ),
                 ],
               ),
             ),

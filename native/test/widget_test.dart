@@ -14,14 +14,20 @@ void main() {
         debugDefaultTargetPlatformOverride = platform;
         try {
           SharedPreferences.setMockInitialValues({});
+          await tester.binding.setSurfaceSize(
+            platform == TargetPlatform.android
+                ? const Size(390, 844)
+                : const Size(1264, 860),
+          );
           await tester.pumpWidget(const TavernApp(initialHostMode: false));
           await tester.pumpAndSettle();
           expect(find.text('🏴‍☠️ Пиратский трактир'), findsOneWidget);
           expect(find.text('Полная ссылка приглашения'), findsOneWidget);
           expect(find.text('Код от капитана'), findsOneWidget);
+          expect(tester.takeException(), isNull);
           // The Windows role-switch icon is not a capture request.
           expect(find.text('Найти экраны и окна'), findsNothing);
-          expect(find.text('Поднять флаг и передавать'), findsNothing);
+          expect(find.text('Поднять флаг и отчалить'), findsNothing);
           expect(find.text('Капитан: передавать'), findsNothing);
           expect(
             find.text('Капитан'),
@@ -32,6 +38,7 @@ void main() {
         } finally {
           // The binding checks this invariant before addTearDown runs.
           debugDefaultTargetPlatformOverride = null;
+          await tester.binding.setSurfaceSize(null);
         }
       },
     );
@@ -102,6 +109,9 @@ void main() {
         find.widgetWithText(TextField, 'Полная ссылка приглашения'),
         '$first/#room=${'a' * 24}&token=${'b' * 48}',
       );
+      await tester.tap(find.text('Сертификат сервера'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Сбросить доверие'));
       await tester.tap(find.text('Сбросить доверие'));
       await tester.pumpAndSettle();
       final prefs = await SharedPreferences.getInstance();
