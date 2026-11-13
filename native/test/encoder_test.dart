@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pirate_tavern/abordage/encoder.dart';
@@ -67,6 +68,59 @@ void main() {
       ['libx264'],
     );
   });
+  test(
+    'audio command maps PCM and AAC without obsolete input queue option',
+    () {
+      const cpu = CaptureProfile(
+        height: 1080,
+        fps: 120,
+        mbps: 50,
+        codec: 'libx264',
+      );
+      final commands = <String, List<String>>{};
+      for (final audio in [false, true]) {
+        final args = encoderArguments(
+          cpu,
+          'dxgi:0:0',
+          'libx264',
+          44000,
+          audioPort: audio ? 44001 : null,
+        );
+        expect(args, isNot(contains('-thread_queue_size')));
+        if (audio) {
+          expect(
+            args,
+            containsAllInOrder([
+              '-f',
+              's16le',
+              '-ar',
+              '48000',
+              '-ac',
+              '2',
+              '-i',
+            ]),
+          );
+          expect(
+            args,
+            containsAllInOrder(['-map', '1:a:0', '-c:v', 'libx264']),
+          );
+          expect(
+            args,
+            containsAllInOrder(['-c:a', 'aac', '-ar', '48000', '-b:a', '192k']),
+          );
+        } else {
+          expect(args, contains('-an'));
+        }
+        commands[audio ? 'audio' : 'silent'] = args;
+      }
+      // CI feeds these exact production arguments to its bundled FFmpeg binary.
+      final path = Platform.environment['ABORDAGE_FFMPEG_FIXTURE_DIR'];
+      if (path != null) {
+        Directory(path).createSync(recursive: true);
+        File('$path/commands.json').writeAsStringSync(jsonEncode(commands));
+      }
+    },
+  );
   Future<File> fixture() async {
     final folder = await Directory.systemTemp.createTemp('abordage-encoder-');
     addTearDown(() => folder.delete(recursive: true));

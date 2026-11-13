@@ -1,7 +1,7 @@
 name: pirate_tavern
 description: Native Windows screen sender and Android viewer for Pirate Tavern.
 publish_to: none
-version: 2.0.1+8
+version: 2.0.2+9
 environment:
   sdk: '>=3.10.0 <4.0.0'
 dependencies:

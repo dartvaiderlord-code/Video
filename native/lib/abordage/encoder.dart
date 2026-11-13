@@ -107,8 +107,6 @@ List<String> encoderArguments(
       'hwnd=$source',
     ],
     if (audioPort != null) ...[
-      '-thread_queue_size',
-      '16',
       '-analyzeduration',
       '0',
       '-probesize',

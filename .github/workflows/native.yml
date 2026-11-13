@@ -21,6 +21,8 @@ jobs:
             target: android
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    env:
+      ABORDAGE_FFMPEG_FIXTURE_DIR: build/encoder-fixtures
     defaults:
       run:
         working-directory: native
@@ -84,6 +86,9 @@ jobs:
           $encoders = (& $exe -hide_banner -encoders 2>&1) -join "`n"
           foreach ($name in @('ddagrab','hwdownload','scale','format')) { if ($filters -notmatch $name) { throw "Missing capture filter $name" } }
           foreach ($name in @('h264_nvenc','h264_amf','h264_qsv','libx264')) { if ($encoders -notmatch $name) { throw "Missing encoder $name" } }
+      - name: Real production command with UDP PCM audio
+        if: matrix.target == 'windows'
+        run: python tool/probe_ffmpeg_audio.py
       - name: Abordage compatible conversion and DXGI probe
         if: matrix.target == 'windows'
         run: python tool/probe_ffmpeg.py
