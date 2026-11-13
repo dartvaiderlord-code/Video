@@ -1,6 +1,9 @@
 {
-  "url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-12-15-40/ffmpeg-N-128837-g986bab2b47-win64-gpl.zip",
-  "sha256": "1a205709149f66a7a8f9e2eee14e6e1d35af6d72f6a0c5016434088214197e69",
-  "source": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/tree/autobuild-2026-11-12-15-40",
+  "url": "https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-full_build.zip",
+  "sha256": "d760e1b3574402ed18b4865851f87d87e73965a982e6453212df8621fed1c508",
+  "source": "https://github.com/FFmpeg/FFmpeg/commit/db69d06eee",
+  "distribution": "https://github.com/GyanD/codexffmpeg/releases/tag/7.1.1",
+  "version": "7.1.1-full_build-www.gyan.dev",
+  "nvenc_api": "13.0",
   "license": "GPL-3.0-or-later; distributed as a separate executable with its licenses and build provenance"
 }

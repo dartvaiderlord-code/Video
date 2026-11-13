@@ -211,6 +211,25 @@ List<String> encoderArguments(
   ];
 }
 
+/// Keep the actionable driver error even when shutdown emits many more lines.
+String? encoderDriverFailure(String line) {
+  final api = RegExp(
+    r'Required:\s*(\d+\.\d+)\s+Found:\s*(\d+\.\d+)',
+  ).firstMatch(line);
+  if (api != null) {
+    return 'NVIDIA: FFmpeg требует NVENC API ${api[1]}, '
+        'драйвер предоставляет ${api[2]}. Нужна совместимая сборка '
+        'FFmpeg или более новый драйвер NVIDIA.';
+  }
+  if (line.contains('amfrt64.dll') && line.contains('failed to open')) {
+    return 'AMD AMF: библиотека драйвера amfrt64.dll недоступна.';
+  }
+  if (line.contains('Error creating an MFX session:')) {
+    return 'Intel QSV: драйвер не смог создать аппаратную сессию.';
+  }
+  return null;
+}
+
 class AbordageEncoder {
   AbordageEncoder({
     String? executablePath,
@@ -328,11 +347,13 @@ class AbordageEncoder {
             }),
       );
       final errors = <String>[];
+      String? driverFailure;
       _subscriptions.add(
         process.stderr
             .transform(utf8.decoder)
             .transform(const LineSplitter())
             .listen((line) {
+              driverFailure ??= encoderDriverFailure(line);
               errors.add(line);
               if (errors.length > 12) errors.removeAt(0);
               lastError = errors.join('\n');
@@ -357,8 +378,10 @@ class AbordageEncoder {
       }
       process.kill();
       await process.exitCode;
+      final details = driverFailure ?? errors.join(' ');
       failures.add(
-        '$encoder (${processingLabel(attempt.processing)}): ${errors.join(' ')}',
+        '$encoder (${processingLabel(attempt.processing)}): '
+        '${details.length > 1200 ? details.substring(0, 1200) : details}',
       );
       for (final subscription in _subscriptions) {
         await subscription.cancel();

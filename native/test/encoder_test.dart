@@ -6,6 +6,20 @@ import 'package:pirate_tavern/abordage/encoder.dart';
 import 'package:pirate_tavern/protocol.dart';
 
 void main() {
+  test('driver diagnostics retain required and available NVIDIA API', () {
+    final failure = encoderDriverFailure(
+      '[h264_nvenc @ 000001ab] Driver does not support the required nvenc '
+      'API version. Required: 13.1 Found: 13.0',
+    );
+    expect(failure, contains('требует NVENC API 13.1'));
+    expect(failure, contains('драйвер предоставляет 13.0'));
+    expect(
+      encoderDriverFailure('[AMF] DLL amfrt64.dll failed to open'),
+      contains('библиотека драйвера'),
+    );
+    expect(encoderDriverFailure('Guessed Channel Layout: stereo'), isNull);
+  });
+
   const profile = CaptureProfile(
     height: 1080,
     fps: 120,

@@ -82,6 +82,9 @@ jobs:
         shell: pwsh
         run: |
           $exe = '.\build\windows\x64\runner\Release\ffmpeg\bin\ffmpeg.exe'
+          $manifest = Get-Content tool/ffmpeg-windows.json -Raw | ConvertFrom-Json
+          $version = (& $exe -version 2>&1) -join "`n"
+          if ($version -notmatch [regex]::Escape($manifest.version)) { throw "Unexpected bundled FFmpeg version" }
           $filters = (& $exe -hide_banner -filters 2>&1) -join "`n"
           $encoders = (& $exe -hide_banner -encoders 2>&1) -join "`n"
           foreach ($name in @('ddagrab','hwdownload','scale','format')) { if ($filters -notmatch $name) { throw "Missing capture filter $name" } }
