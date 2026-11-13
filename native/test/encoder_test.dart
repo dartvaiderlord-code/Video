@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pirate_tavern/abordage/encoder.dart';
 import 'package:pirate_tavern/protocol.dart';
+import 'package:pirate_tavern/abordage/playback_options.dart';
 
 void main() {
   test('driver diagnostics retain required and available NVIDIA API', () {
@@ -132,6 +133,12 @@ void main() {
       if (path != null) {
         Directory(path).createSync(recursive: true);
         File('$path/commands.json').writeAsStringSync(jsonEncode(commands));
+        File('$path/player.json').writeAsStringSync(
+          jsonEncode({
+            'options': abordagePlaybackOptions,
+            'url': abordagePlaybackUrl(44002),
+          }),
+        );
       }
     },
   );

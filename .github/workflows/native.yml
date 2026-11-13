@@ -92,6 +92,22 @@ jobs:
       - name: Real production command with UDP PCM audio
         if: matrix.target == 'windows'
         run: python tool/probe_ffmpeg_audio.py
+      - name: Real Abordage UDP delivery into bundled libmpv (Windows)
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          python tool/prepare_benchmark.py
+          $env:ABORDAGE_CRYPTO_LIBRARY = (Resolve-Path 'build/windows/x64/runner/Release/abordage_crypto.dll').Path
+          $env:ABORDAGE_REPO = (Resolve-Path '..').Path
+          $nativeRoot = (Get-Location).Path
+          $probe = Join-Path $env:RUNNER_TEMP 'abordage-playback-transport.exe'
+          Push-Location $env:RUNNER_TEMP
+          dart compile exe --packages="$nativeRoot/.dart_tool/abordage_package_config.json" "$nativeRoot/tool/abordage_playback_transport.dart" -o $probe
+          $compileExit = $LASTEXITCODE
+          Pop-Location
+          if ($compileExit -ne 0) { exit $compileExit }
+          python tool/probe_abordage_playback.py --transport-exe $probe
+          exit $LASTEXITCODE
       - name: Abordage compatible conversion and DXGI probe
         if: matrix.target == 'windows'
         run: python tool/probe_ffmpeg.py

@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 import 'wire.dart';
 import 'mpegts.dart';
+import 'datagram_queue.dart';
 
 class AbordageException implements Exception {
   AbordageException(this.message);
@@ -170,6 +171,58 @@ Future<void> _worker(Map<String, dynamic> config) async {
       output = await RawDatagramSocket.bind(InternetAddress.loopbackIPv4, 0);
     }
     final clock = Stopwatch()..start(), awaiting = Queue<(Uint8List, int)>();
+    socket.writeEventsEnabled = false;
+    final networkWrites = DatagramSendQueue(
+      send: (packet) => socket.send(packet, server, port),
+      writeInterest: (enabled) => socket.writeEventsEnabled = enabled,
+      nowMilliseconds: () => clock.elapsedMilliseconds,
+    );
+    StreamSubscription<RawSocketEvent>? outputEvents;
+    late final DatagramSendQueue? playbackWrites;
+    playbackWrites = output == null
+        ? null
+        : DatagramSendQueue(
+            send: (packet) => output!.send(
+              packet,
+              InternetAddress.loopbackIPv4,
+              config['playbackPort'] as int,
+            ),
+            writeInterest: (enabled) {
+              // Only register the outgoing local socket when it actually blocks.
+              if (enabled && outputEvents == null) {
+                output!.readEventsEnabled = false;
+                output.writeEventsEnabled = false;
+                outputEvents = output.listen((event) {
+                  if (event == RawSocketEvent.write && alive) {
+                    playbackWrites!.flush();
+                  }
+                });
+              }
+              output!.writeEventsEnabled = enabled;
+            },
+            nowMilliseconds: () => clock.elapsedMilliseconds,
+          );
+    void sendNetwork(Uint8List packet) {
+      if (networkWrites.queuedBytes == 0 &&
+          socket.send(packet, server, port) == packet.length) {
+        return;
+      }
+      networkWrites.add(packet);
+    }
+
+    void sendPlayback(Uint8List packet) {
+      if (playbackWrites!.queuedBytes == 0 &&
+          output!.send(
+                packet,
+                InternetAddress.loopbackIPv4,
+                config['playbackPort'] as int,
+              ) ==
+              packet.length) {
+        return;
+      }
+      playbackWrites.add(packet);
+    }
+
     final retransmitCache = <int, (Uint8List, int, int)>{};
     final stopped = Completer<void>();
     var retransmissions = 0, lastNackAt = -100;
@@ -179,12 +232,7 @@ Future<void> _worker(Map<String, dynamic> config) async {
         ready = false,
         sending = false,
         receiving = false;
-    var lastAck = 0,
-        bytes = 0,
-        packets = 0,
-        dropped = 0,
-        authFailures = 0,
-        sendFailures = 0;
+    var lastAck = 0, bytes = 0, packets = 0, dropped = 0, authFailures = 0;
     final pending = BytesBuilder(copy: false);
     var pendingSince = 0;
     final completed = Queue<ReadyBlock>();
@@ -196,11 +244,7 @@ Future<void> _worker(Map<String, dynamic> config) async {
         if (pendingControls.length > 16) {
           pendingControls.remove(pendingControls.first);
         }
-        socket.send(
-          makePacket(id: id, key: key, kind: kind, sequence: number),
-          server,
-          port,
-        );
+        sendNetwork(makePacket(id: id, key: key, kind: kind, sequence: number));
       } catch (e) {
         fail(e);
         commands.sendPort.send('stop');
@@ -222,7 +266,7 @@ Future<void> _worker(Map<String, dynamic> config) async {
           length: encrypted.length,
           payload: shards[i],
         );
-        if (socket.send(packet, server, port) != packet.length) sendFailures++;
+        sendNetwork(packet);
         packets++;
       }
     }
@@ -294,11 +338,7 @@ Future<void> _worker(Map<String, dynamic> config) async {
       if (pending.isEmpty) pendingSince = clock.elapsedMilliseconds;
       if (publishing && output != null) {
         for (final readyTs in joinGate.push(ts)) {
-          output.send(
-            readyTs,
-            InternetAddress.loopbackIPv4,
-            config['playbackPort'] as int,
-          );
+          sendPlayback(readyTs);
         }
       }
       pending.add(ts);
@@ -328,11 +368,7 @@ Future<void> _worker(Map<String, dynamic> config) async {
           try {
             final plain = await cipher.open(b.encrypted, b.id, b.timestamp);
             for (final readyTs in joinGate.push(plain)) {
-              output!.send(
-                readyTs,
-                InternetAddress.loopbackIPv4,
-                config['playbackPort'] as int,
-              );
+              sendPlayback(readyTs);
             }
             bytes += plain.length;
           } catch (_) {
@@ -345,6 +381,7 @@ Future<void> _worker(Map<String, dynamic> config) async {
     }
 
     network.listen((event) {
+      if (event == RawSocketEvent.write && alive) networkWrites.flush();
       if (event != RawSocketEvent.read || !alive) return;
       final d = socket.receive();
       if (d == null) return;
@@ -423,7 +460,13 @@ Future<void> _worker(Map<String, dynamic> config) async {
           'recovered': assembler.recovered,
           'lost': assembler.lost,
           'authFailures': authFailures,
-          'sendFailures': sendFailures,
+          'sendFailures': networkWrites.dropped,
+          'sendBlocked': networkWrites.blocked,
+          'sendQueueBytes': networkWrites.queuedBytes,
+          'playbackDrops': playbackWrites?.dropped ?? 0,
+          'playbackBlocked': playbackWrites?.blocked ?? 0,
+          'playbackQueueBytes': playbackWrites?.queuedBytes ?? 0,
+          'waitingKeyframe': !joinGate.ready,
           'retransmissions': retransmissions,
         });
       }),

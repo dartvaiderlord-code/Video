@@ -439,7 +439,18 @@ class TavernSession extends ChangeNotifier {
 
   Future<void> _runAbordage(Map<String, dynamic> credentials, int epoch) async {
     void fail(String message) {
-      if (epoch == _epoch) unawaited(stop(message));
+      if (epoch == _epoch) {
+        final s = _transportStats;
+        final diagnostic = s.isEmpty
+            ? ''
+            : '\nМедиа: ${s['bytes'] ?? 0} байт · ${s['packets'] ?? 0} пакетов · '
+                  'ошибок проверки ${s['authFailures'] ?? 0} · '
+                  'потерь ${s['lost'] ?? 0} · '
+                  'потерь отправки ${s['sendFailures'] ?? 0} · '
+                  'потерь плеера ${s['playbackDrops'] ?? 0} · '
+                  'ожидание ключевого кадра ${s['waitingKeyframe'] ?? true}';
+        unawaited(stop('$message$diagnostic'));
+      }
     }
 
     final profile = Map<String, dynamic>.from(credentials['profile'] as Map);
@@ -534,7 +545,12 @@ class TavernSession extends ChangeNotifier {
           '${hosting ? 'Отправка' : 'Приём'}: ${mbps.toStringAsFixed(1)} Мбит/с'
           '${hosting ? ' · кодирование ${encodedFps.toStringAsFixed(1)} FPS · ${_aboEncoder?.selected ?? '—'} · ${_aboEncoder?.processingPath ?? ''}' : ''}\n'
           '${decode == null ? '' : 'Декодер: ${decode['size']} · ${decode['hwdec-current']} · оценка FPS ${decode['estimated-vf-fps']} · пропусков ${decode['decoder-frame-drop-count']}/${decode['frame-drop-count']}\n'}'
-          'FEC восстановлено ${_transportStats['recovered'] ?? 0} · потерь ${_transportStats['lost'] ?? 0} · очередь ${_transportStats['dropped'] ?? 0} · send ${_transportStats['sendFailures'] ?? 0}';
+          'FEC восстановлено ${_transportStats['recovered'] ?? 0} · потерь ${_transportStats['lost'] ?? 0} · очередь ${_transportStats['dropped'] ?? 0} · send ${_transportStats['sendFailures'] ?? 0}\n'
+          'UDP повторов ${_transportStats['sendBlocked'] ?? 0} · '
+          'очередь ${_transportStats['sendQueueBytes'] ?? 0} Б · '
+          'потерь плеера ${_transportStats['playbackDrops'] ?? 0} · '
+          'проверка ${_transportStats['authFailures'] ?? 0}'
+          '${hosting ? '' : ' · ключевой кадр ${_transportStats['waitingKeyframe'] == false ? 'получен' : 'ожидается'}'}';
       _changed();
     } finally {
       _readingMediaStats = false;

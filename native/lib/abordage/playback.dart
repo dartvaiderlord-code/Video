@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'playback_options.dart';
 
 class AbordagePlayback {
   AbordagePlayback() {
@@ -40,30 +41,14 @@ class AbordagePlayback {
           }),
     );
     final native = player.platform as NativePlayer;
-    for (final option in <String, String>{
-      'cache': 'no',
-      'demuxer-readahead-secs': '0',
-      'demuxer-max-bytes': '1048576',
-      'demuxer-lavf-probesize': '32768',
-      'demuxer-lavf-analyzeduration': '0.5',
-      'demuxer-lavf-o': 'fflags=+nobuffer',
-      'vd-lavc-threads': '2',
-      'vd-lavc-o': 'flags=+low_delay',
-      'video-sync': 'audio',
-      'framedrop': 'vo',
-      'audio-buffer': '0.02',
-    }.entries) {
+    for (final option in abordagePlaybackOptions.entries) {
       await native.setProperty(option.key, option.value);
     }
     _errors = player.stream.error.listen(
       (error) =>
           lastError = error.length > 512 ? error.substring(0, 512) : error,
     );
-    await player.open(
-      Media(
-        'udp://127.0.0.1:$port?localaddr=127.0.0.1&fifo_size=8192&overrun_nonfatal=1&buffer_size=2097152&timeout=8000000',
-      ),
-    );
+    await player.open(Media(abordagePlaybackUrl(port)));
   }
 
   Future<Map<String, String>> stats() async {
