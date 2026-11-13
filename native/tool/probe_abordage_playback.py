@@ -11,6 +11,7 @@ from pathlib import Path
 import socket
 import struct
 import subprocess
+import tempfile
 import threading
 import time
 
@@ -27,6 +28,7 @@ logs, reports, encoded = [], {}, {}
 encoder = transport = None
 handle = None
 stop = threading.Event()
+playlist_directory = tempfile.TemporaryDirectory(prefix='abordage-playlist-')
 
 def reserve_port():
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -59,6 +61,7 @@ try:
     mpv.mpv_create.restype = C.c_void_p
     mpv.mpv_initialize.argtypes = [C.c_void_p]
     mpv.mpv_set_option_string.argtypes = [C.c_void_p, C.c_char_p, C.c_char_p]
+    mpv.mpv_set_property_string.argtypes = [C.c_void_p, C.c_char_p, C.c_char_p]
     mpv.mpv_command.argtypes = [C.c_void_p, C.POINTER(C.c_char_p)]
     mpv.mpv_get_property_string.argtypes = [C.c_void_p, C.c_char_p]
     mpv.mpv_get_property_string.restype = C.c_void_p
@@ -110,9 +113,17 @@ try:
         raise RuntimeError('Transport startup failed: ' + '\n'.join(logs))
 
     url = player['url'].replace('127.0.0.1:44002', f'127.0.0.1:{output_port}')
-    args = (C.c_char_p * 3)(b'loadfile', url.encode(), None)
+    # Match media_kit Player.open: paused -> plaintext loadlist append ->
+    # unpause -> playlist-pos=0. Direct loadfile hides UDP playlist rejection.
+    playlist = Path(playlist_directory.name) / 'playlist'
+    playlist.write_text(url + '\n', encoding='utf-8')
+    mpv.mpv_set_property_string(handle, b'pause', b'yes')
+    args = (C.c_char_p * 4)(b'loadlist', str(playlist).encode(), b'append', None)
     if mpv.mpv_command(handle, args) < 0:
         raise RuntimeError('libmpv rejected the production playback URL')
+    mpv.mpv_set_property_string(handle, b'pause', b'no')
+    if mpv.mpv_set_property_string(handle, b'playlist-pos', b'0') < 0:
+        raise RuntimeError('libmpv rejected the playlist entry')
 
     # Same production mapping/codecs/PCM/MPEG-TS; only replace screen and ports.
     first = command.index('-i')
@@ -204,3 +215,4 @@ finally:
             transport.wait(timeout=5)
     if handle:
         mpv.mpv_terminate_destroy(handle)
+    playlist_directory.cleanup()

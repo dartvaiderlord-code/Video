@@ -8,7 +8,10 @@ class AbordagePlayback {
   AbordagePlayback() {
     MediaKit.ensureInitialized();
     player = Player(
-      configuration: const PlayerConfiguration(bufferSize: 1024 * 1024),
+      configuration: const PlayerConfiguration(
+        bufferSize: 1024 * 1024,
+        logLevel: MPVLogLevel.warn,
+      ),
     );
     controller = VideoController(
       player,
@@ -21,10 +24,17 @@ class AbordagePlayback {
   late final Player player;
   late final VideoController controller;
   StreamSubscription<String>? _errors;
+  StreamSubscription<PlayerLog>? _logs;
   Timer? _firstFrame;
   bool _stopped = false, _rendered = false;
   String lastError = '';
   Future<void> open(int port, void Function(String) onFailure) async {
+    _errors = player.stream.error.listen(_rememberError);
+    _logs = player.stream.log.listen((entry) {
+      if (['fatal', 'error', 'warn'].contains(entry.level)) {
+        _rememberError('${entry.prefix}: ${entry.text}');
+      }
+    });
     _firstFrame = Timer(const Duration(seconds: 12), () {
       if (!_stopped && !_rendered) {
         onFailure('Абордаж: декодер не показал кадр. $lastError');
@@ -44,11 +54,14 @@ class AbordagePlayback {
     for (final option in abordagePlaybackOptions.entries) {
       await native.setProperty(option.key, option.value);
     }
-    _errors = player.stream.error.listen(
-      (error) =>
-          lastError = error.length > 512 ? error.substring(0, 512) : error,
-    );
     await player.open(Media(abordagePlaybackUrl(port)));
+  }
+
+  void _rememberError(String error) {
+    final text = error.trim();
+    if (text.isNotEmpty) {
+      lastError = text.length > 768 ? text.substring(0, 768) : text;
+    }
   }
 
   Future<Map<String, String>> stats() async {
@@ -77,6 +90,7 @@ class AbordagePlayback {
     _stopped = true;
     _firstFrame?.cancel();
     await _errors?.cancel();
+    await _logs?.cancel();
     await player.dispose();
   }
 }

@@ -92,6 +92,21 @@ jobs:
       - name: Real production command with UDP PCM audio
         if: matrix.target == 'windows'
         run: python tool/probe_ffmpeg_audio.py
+      - name: Real media_kit Player.open UDP playlist regression
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $env:ABORDAGE_PLAYER_LIBRARY = (Resolve-Path 'build/windows/x64/runner/Release/libmpv-2.dll').Path
+          $env:ABORDAGE_PLAYER_FFMPEG = (Resolve-Path 'build/windows/x64/runner/Release/ffmpeg/bin/ffmpeg.exe').Path
+          flutter test test/playback_open_test.dart --reporter expanded 2>&1 | Tee-Object -FilePath player-open-test.log
+          $testExit = $LASTEXITCODE
+          if ($testExit -ne 0) {
+            $message = (Get-Content player-open-test.log -Tail 50) -join "`n"
+            $message = $message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error::$message"
+            exit $testExit
+          }
+          Write-Output '::notice::PASS actual media_kit Player.open: old options reject UDP playlist; fixed options decode H264/AAC.'
       - name: Real Abordage UDP delivery into bundled libmpv (Windows)
         if: matrix.target == 'windows'
         shell: pwsh

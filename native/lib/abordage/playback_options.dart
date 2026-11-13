@@ -1,5 +1,8 @@
 // Shared with the headless libmpv regression: exercise the actual player options.
 const abordagePlaybackOptions = <String, String>{
+  // media_kit opens Media through loadlist. libmpv otherwise rejects UDP as
+  // unsafe in a playlist, even though this URL is generated on loopback only.
+  'load-unsafe-playlists': 'yes',
   'cache': 'no',
   'demuxer-readahead-secs': '0',
   'demuxer-max-bytes': '1048576',
