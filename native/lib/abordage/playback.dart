@@ -31,7 +31,8 @@ class AbordagePlayback {
   Future<void> open(int port, void Function(String) onFailure) async {
     _errors = player.stream.error.listen(_rememberError);
     _logs = player.stream.log.listen((entry) {
-      if (['fatal', 'error', 'warn'].contains(entry.level)) {
+      if (['fatal', 'error', 'warn'].contains(entry.level) &&
+          entry.text.trim().isNotEmpty) {
         _rememberError('${entry.prefix}: ${entry.text}');
       }
     });
