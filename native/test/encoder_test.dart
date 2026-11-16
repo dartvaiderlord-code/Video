@@ -75,6 +75,8 @@ void main() {
       'h264_qsv',
     ]);
     expect(plans.last.processing, CaptureProcessing.compatible);
+    expect(plans.first.processing, CaptureProcessing.compatible);
+    expect(plans[1].processing, CaptureProcessing.directGpu);
     expect(
       encoderAttempts(
         const CaptureProfile(codec: 'libx264'),
@@ -139,6 +141,20 @@ void main() {
             'url': abordagePlaybackUrl(44002),
           }),
         );
+        final oversampled = encoderArguments(
+          const CaptureProfile(
+            height: 1080,
+            fps: 480,
+            mbps: 25,
+            codec: 'libx264',
+          ),
+          'dxgi:0:0',
+          'libx264',
+          44000,
+        );
+        File(
+          '$path/oversampled.json',
+        ).writeAsStringSync(jsonEncode(oversampled));
       }
     },
   );

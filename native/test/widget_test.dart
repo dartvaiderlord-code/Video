@@ -4,9 +4,43 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pirate_tavern/main.dart';
+import 'package:pirate_tavern/protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  testWidgets('restores the chosen CPU 480 FPS 50 Mbps capture settings', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'captureSettings': jsonEncode({
+        'height': 1080,
+        'fps': 480,
+        'mbps': 50,
+        'codec': 'libx264',
+      }),
+    });
+    await tester.pumpWidget(const TavernApp(initialHostMode: true));
+    await tester.pumpAndSettle();
+    final fpsKey = ValueKey('Частота, FPS:${captureFrameRates.join(',')}');
+    expect(
+      tester
+          .widget<DropdownButtonFormField<int>>(find.byKey(fpsKey))
+          .initialValue,
+      480,
+    );
+    const encoderKey = ValueKey(
+      'Кодировщик:auto,h264_nvenc,h264_amf,h264_qsv,libx264',
+    );
+    expect(
+      tester
+          .widget<DropdownButtonFormField<String>>(find.byKey(encoderKey))
+          .initialValue,
+      'libx264',
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
   for (final platform in [TargetPlatform.android, TargetPlatform.windows]) {
     testWidgets(
       'viewer on $platform shows join fields without capture controls',
@@ -43,7 +77,7 @@ void main() {
       },
     );
   }
-  testWidgets('GPU H264 remains available at 120 and 480 FPS', (tester) async {
+  testWidgets('GPU H264 remains available up to 1000 FPS', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     try {
       SharedPreferences.setMockInitialValues({});
@@ -52,7 +86,7 @@ void main() {
       const encoderKey = ValueKey(
         'Кодировщик:auto,h264_nvenc,h264_amf,h264_qsv,libx264',
       );
-      const fpsKey = ValueKey('Частота, FPS:30,60,120,144,165,240,360,480');
+      final fpsKey = ValueKey('Частота, FPS:${captureFrameRates.join(',')}');
       await tester.ensureVisible(find.byKey(encoderKey));
       await tester.tap(find.byKey(encoderKey));
       await tester.pumpAndSettle();
@@ -61,7 +95,12 @@ void main() {
       await tester.ensureVisible(find.byKey(fpsKey));
       await tester.tap(find.byKey(fpsKey));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('480').last);
+      await tester.scrollUntilVisible(
+        find.text('1000'),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(find.text('1000').last);
       await tester.pumpAndSettle();
       expect(
         tester

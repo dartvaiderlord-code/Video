@@ -2,7 +2,8 @@ import http from 'node:http';
 import {AbordageRelay} from './abordage.js';
 import manifest from './package.json' with {type:'json'};
 
-export const SERVER_INFO = Object.freeze({version:manifest.version, protocol:2, features:['chat', 'voice', 'abordage-1']});
+export const ABORDAGE_MAX_FPS = 1000;
+export const SERVER_INFO = Object.freeze({version:manifest.version, protocol:2, features:['chat', 'voice', 'abordage-1'], limits:{abordageMaxFps:ABORDAGE_MAX_FPS}});
 import { readFile } from 'node:fs/promises';
 import { randomBytes, randomInt, createHmac, createHash, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -101,7 +102,7 @@ export function createApp(env = process.env) {
           let media = null;
           if (msg.media != null) {
             const m=msg.media;
-            if (m.protocol!=='abordage-1' || !Number.isInteger(m.width) || !Number.isInteger(m.height) || m.width<320 || m.width>3840 || m.height<180 || m.height>2160 || !Number.isInteger(m.fps) || m.fps<30 || m.fps>480 || !Number.isInteger(m.mbps) || m.mbps<5 || m.mbps>200) return send(ws,{type:'error',message:'Неверный профиль Абордажа.'});
+            if (m.protocol!=='abordage-1' || !Number.isInteger(m.width) || !Number.isInteger(m.height) || m.width<320 || m.width>3840 || m.height<180 || m.height>2160 || !Number.isInteger(m.fps) || m.fps<30 || m.fps>ABORDAGE_MAX_FPS || !Number.isInteger(m.mbps) || m.mbps<5 || m.mbps>200) return send(ws,{type:'error',message:'Неверный профиль Абордажа.'});
             media={protocol:'abordage-1',width:m.width,height:m.height,fps:m.fps,mbps:m.mbps};
           }
           const id = randomBytes(12).toString('hex'), token = randomBytes(24).toString('hex');

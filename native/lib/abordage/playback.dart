@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'playback_options.dart';
@@ -16,7 +15,7 @@ class AbordagePlayback {
     controller = VideoController(
       player,
       configuration: VideoControllerConfiguration(
-        hwdec: Platform.isAndroid ? 'mediacodec' : 'd3d11va',
+        hwdec: 'auto-safe',
         enableHardwareAcceleration: true,
       ),
     );
@@ -28,6 +27,8 @@ class AbordagePlayback {
   Timer? _firstFrame;
   bool _stopped = false, _rendered = false;
   String lastError = '';
+  final _statsClock = Stopwatch()..start();
+  int _previousDrops = 0, _previousStatsUs = 0;
   Future<void> open(int port, void Function(String) onFailure) async {
     _errors = player.stream.error.listen(_rememberError);
     _logs = player.stream.log.listen((entry) {
@@ -84,6 +85,23 @@ class AbordagePlayback {
     }
     result['size'] =
         '${player.state.width ?? '—'}×${player.state.height ?? '—'}';
+    final now = _statsClock.elapsedMicroseconds;
+    final drops = int.tryParse(result['frame-drop-count'] ?? '') ?? 0;
+    result['output-drops-per-second'] = _previousStatsUs == 0
+        ? '—'
+        : ((drops - _previousDrops).clamp(0, 1 << 32) *
+                  1000000 /
+                  (now - _previousStatsUs))
+              .toStringAsFixed(1);
+    _previousStatsUs = now;
+    _previousDrops = drops;
+    result['stream-fps'] =
+        double.tryParse(result['estimated-vf-fps'] ?? '')?.toStringAsFixed(1) ??
+        '—';
+    final hw = result['hwdec-current'];
+    result['decoder'] = hw == 'no'
+        ? 'CPU'
+        : (hw == null || hw.isEmpty ? '—' : hw);
     return result;
   }
 

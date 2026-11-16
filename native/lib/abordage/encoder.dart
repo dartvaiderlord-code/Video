@@ -37,12 +37,15 @@ List<EncoderAttempt> encoderAttempts(
       : [profile.codec];
   return [
     for (final encoder in candidates) ...[
+      if (profile.codec == 'auto')
+        EncoderAttempt(encoder, CaptureProcessing.compatible),
       if (source.startsWith('dxgi:') &&
           sourceWidth == profile.width &&
           sourceHeight == profile.height &&
           ['h264_nvenc', 'h264_amf'].contains(encoder))
         EncoderAttempt(encoder, CaptureProcessing.directGpu),
-      EncoderAttempt(encoder, CaptureProcessing.compatible),
+      if (profile.codec != 'auto')
+        EncoderAttempt(encoder, CaptureProcessing.compatible),
     ],
   ];
 }
@@ -138,6 +141,8 @@ List<String> encoderArguments(
     '${(p.fps / 4).round()}',
     '-bf',
     '0',
+    '-force_key_frames',
+    'expr:gte(t,n_forced*0.25)',
     if (encoder == 'h264_nvenc') ...[
       '-preset',
       'p1',
@@ -150,7 +155,9 @@ List<String> encoderArguments(
       '-zerolatency',
       '1',
       '-delay',
-      '0',
+      '1',
+      '-forced-idr',
+      '1',
     ],
     if (encoder == 'h264_amf') ...[
       '-usage',
@@ -174,7 +181,7 @@ List<String> encoderArguments(
       '-tune',
       'zerolatency',
       '-x264-params',
-      'nal-hrd=cbr:force-cfr=1',
+      'nal-hrd=vbr:force-cfr=0',
     ],
     '-fps_mode',
     'passthrough',

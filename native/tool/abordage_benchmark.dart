@@ -185,7 +185,7 @@ Future<void> main(List<String> arguments) async {
       '-bf',
       '0',
       '-x264-params',
-      'nal-hrd=cbr:force-cfr=1',
+      'nal-hrd=vbr:force-cfr=0',
       '-fps_mode',
       'passthrough',
       '-flags:v',

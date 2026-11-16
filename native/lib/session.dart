@@ -288,7 +288,16 @@ class TavernSession extends ChangeNotifier {
     }
     switch (msg['type']) {
       case 'error':
-        await stop(msg['message'] as String? ?? 'Ошибка комнаты.');
+        var message = msg['message'] as String? ?? 'Ошибка комнаты.';
+        if (hosting &&
+            _abordageRoom &&
+            _profile.fps > 480 &&
+            _profile.fps <= 1000 &&
+            message == 'Неверный профиль Абордажа.') {
+          message =
+              'Сервер отклонил повышенную частоту. Для FPS выше 480 обновите Docker-контейнер до сервера 2.1.0 или выберите до 480 FPS.';
+        }
+        await stop(message);
       case 'ended':
         await stop('Капитан завершил трансляцию. Нужна новая ссылка.');
       case 'created':
@@ -544,7 +553,7 @@ class TavernSession extends ChangeNotifier {
           'Цель: ${_profile.width}×${_profile.height} · ${_profile.fps} FPS · ${_profile.mbps} Мбит/с\n'
           '${hosting ? 'Отправка' : 'Приём'}: ${mbps.toStringAsFixed(1)} Мбит/с'
           '${hosting ? ' · кодирование ${encodedFps.toStringAsFixed(1)} FPS · ${_aboEncoder?.selected ?? '—'} · ${_aboEncoder?.processingPath ?? ''}' : ''}\n'
-          '${decode == null ? '' : 'Декодер: ${decode['size']} · ${decode['hwdec-current']} · оценка FPS ${decode['estimated-vf-fps']} · пропусков ${decode['decoder-frame-drop-count']}/${decode['frame-drop-count']}\n'}'
+          '${decode == null ? '' : 'Декодер: ${decode['size']} · ${decode['decoder']} · оценка FPS потока ${decode['stream-fps']}\nПропуски: декодер ${decode['decoder-frame-drop-count']} · вывод ${decode['frame-drop-count']} (за секунду ${decode['output-drops-per-second']})\n'}'
           'FEC восстановлено ${_transportStats['recovered'] ?? 0} · потерь ${_transportStats['lost'] ?? 0} · очередь ${_transportStats['dropped'] ?? 0} · send ${_transportStats['sendFailures'] ?? 0}\n'
           'UDP повторов ${_transportStats['sendBlocked'] ?? 0} · '
           'очередь ${_transportStats['sendQueueBytes'] ?? 0} Б · '

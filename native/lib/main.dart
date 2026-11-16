@@ -94,6 +94,24 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     server.text = prefs.getString('server') ?? '';
+    final savedCapture = prefs.getString('captureSettings');
+    if (savedCapture != null) {
+      try {
+        final saved = jsonDecode(savedCapture) as Map<String, dynamic>;
+        if (captureHeights.contains(saved['height'])) {
+          height = saved['height'] as int;
+        }
+        if (captureFrameRates.contains(saved['fps'])) fps = saved['fps'] as int;
+        if (captureBitrates.contains(saved['mbps'])) {
+          bitrate = saved['mbps'] as int;
+        }
+        if (encoderLabels.containsKey(saved['codec'])) {
+          codec = saved['codec'] as String;
+        }
+      } catch (_) {
+        /* Keep portable defaults for invalid local settings. */
+      }
+    }
     final saved = prefs.getString('trustedCaByOrigin');
     if (saved != null) {
       try {
@@ -280,6 +298,15 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
         endpoint.origin,
       );
       if (hostMode) {
+        await (await SharedPreferences.getInstance()).setString(
+          'captureSettings',
+          jsonEncode({
+            'height': height,
+            'fps': fps,
+            'mbps': bitrate,
+            'codec': codec,
+          }),
+        );
         await session.host(
           endpoint,
           code.text,
@@ -639,33 +666,24 @@ class _TavernHomeState extends State<TavernHome> with WidgetsBindingObserver {
                       spacing: 12,
                       runSpacing: 12,
                       children: [
-                        _choice<int>('Высота, p', height, [
-                          720,
-                          1080,
-                          1440,
-                          2160,
-                        ], (v) => height = v),
-                        _choice<int>('Частота, FPS', fps, [
-                          30,
-                          60,
-                          120,
-                          144,
-                          165,
-                          240,
-                          360,
-                          480,
-                        ], (v) => fps = v),
-                        _choice<int>('Мбит/с потока', bitrate, [
-                          8,
-                          12,
-                          20,
-                          35,
-                          50,
-                          80,
-                          100,
-                          150,
-                          200,
-                        ], (v) => bitrate = v),
+                        _choice<int>(
+                          'Высота, p',
+                          height,
+                          captureHeights,
+                          (v) => height = v,
+                        ),
+                        _choice<int>(
+                          'Частота, FPS',
+                          fps,
+                          captureFrameRates,
+                          (v) => fps = v,
+                        ),
+                        _choice<int>(
+                          'Мбит/с потока',
+                          bitrate,
+                          captureBitrates,
+                          (v) => bitrate = v,
+                        ),
                         _choice<String>(
                           'Кодировщик',
                           codec,

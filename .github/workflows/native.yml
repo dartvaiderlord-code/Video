@@ -92,6 +92,31 @@ jobs:
       - name: Real production command with UDP PCM audio
         if: matrix.target == 'windows'
         run: python tool/probe_ffmpeg_audio.py
+      - name: Variable capture FPS retains its video quality budget
+        if: matrix.target == 'windows'
+        run: python tool/probe_variable_fps_budget.py
+      - name: Windows process-tree shutdown regression
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          cmake -S tool/process_job_probe -B build/process-job-probe -A x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build/process-job-probe --config Release 2>&1 | Tee-Object -FilePath process-job-build.log
+          $buildExit = $LASTEXITCODE
+          if ($buildExit -ne 0) {
+            $message = (Get-Content process-job-build.log -Tail 50) -join "`n"
+            $message = $message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error::$message"
+            exit $buildExit
+          }
+          python tool/probe_process_cleanup.py --probe build/process-job-probe/Release/pirate_process_job_probe.exe 2>&1 | Tee-Object -FilePath process-job-test.log
+          $testExit = $LASTEXITCODE
+          if ($testExit -ne 0) {
+            $message = (Get-Content process-job-test.log -Tail 50) -join "`n"
+            $message = $message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error::$message"
+            exit $testExit
+          }
       - name: Real media_kit Player.open UDP playlist regression
         if: matrix.target == 'windows'
         shell: pwsh

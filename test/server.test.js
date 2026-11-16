@@ -108,8 +108,20 @@ test('deployed server exposes a no-store version and chat capabilities', async t
   assert.equal(info.version,manifest.version);
   assert.equal(info.protocol,2);
   assert.deepEqual(info.features,['chat','voice','abordage-1']);
+  assert.equal(info.limits.abordageMaxFps,1000);
   assert.equal(response.headers.get('x-pirate-tavern-version'), info.version);
   assert.equal(response.headers.get('cache-control'),'no-store');
+});
+
+test('native rooms accept 1000 FPS, reject values above it, and keep the chosen budget', async t => {
+  const {client} = await setup(t);
+  const host = await client();
+  const media={protocol:'abordage-1',width:1920,height:1080,fps:1001,mbps:50};
+  host.send({type:'create',roomCode:'CREW',media});
+  assert.equal((await host.next()).type,'error');
+  host.send({type:'create',roomCode:'CREW',media:{...media,fps:1000}});
+  const room=await host.next();assert.equal(room.type,'created');
+  assert.equal(room.abordage.profile.fps,1000);assert.equal(room.abordage.profile.mbps,50);
 });
 
 test('pirate nicknames are unique, stable and shared by chat and voice roster', {timeout:5000}, async t => {

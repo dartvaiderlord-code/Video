@@ -4,6 +4,23 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
+const captureFrameRates = [
+  30,
+  60,
+  120,
+  144,
+  165,
+  240,
+  360,
+  480,
+  600,
+  720,
+  960,
+  1000,
+];
+const captureHeights = [720, 1080, 1440, 2160];
+const captureBitrates = [8, 12, 20, 35, 50, 80, 100, 150, 200];
+
 Uri serverOrigin(String text, {bool allowHttpForTests = false}) {
   final uri = Uri.tryParse(text.trim());
   if (uri == null ||

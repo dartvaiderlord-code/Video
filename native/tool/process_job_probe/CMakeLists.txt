@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.15)
+project(pirate_process_job_probe LANGUAGES CXX)
+add_executable(pirate_process_job_probe main.cpp)
+target_compile_features(pirate_process_job_probe PRIVATE cxx_std_17)
+target_compile_definitions(pirate_process_job_probe PRIVATE NOMINMAX UNICODE _UNICODE)
+if(MSVC)
+  target_compile_options(pirate_process_job_probe PRIVATE /W4 /WX /utf-8)
+endif()
